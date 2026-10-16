@@ -35,11 +35,11 @@ abstract class Engine {
   VoidCallback? onCompleted;
   String? audioId, subtitleId;
 
-  /// Android: ExoPlayer, außer der Nutzer wählt mpv. PC: immer mpv.
-  static Engine create([String url = '']) {
+  /// Android: ExoPlayer, außer der Nutzer wählt mpv ([engine] überschreibt die Einstellung). PC: immer mpv.
+  static Engine create([String url = '', String? engine]) {
     // rtmp/udp/mms kann ExoPlayer nicht: dafür immer mpv
     final exotic = RegExp(r'^(rtmp|rtmps|udp|rtp|mms|mmsh|srt)://', caseSensitive: false).hasMatch(url);
-    return Platform.isAndroid && store.get('engine', 'exo') == 'exo' && !exotic ? ExoEngine() : MpvEngine();
+    return Platform.isAndroid && (engine ?? store.get('engine', 'exo')) == 'exo' && !exotic ? ExoEngine() : MpvEngine();
   }
 
   /// Kodi-Schreibweise "url|User-Agent=x&Referer=y": Header abtrennen.
@@ -72,9 +72,20 @@ abstract class Engine {
   Future<void> selectQuality(String? id) async => qualityId = id;
   String? qualityId;
 
-  /// "1080p · 5.2 Mbit/s" aus Höhe und Bitrate.
-  static String qualityLabel(int? height, int? bitrate) => [
-        if (height != null && height > 0) height >= 2000 ? '4K' : '${height}p',
+  /// "4K", "1080p" aus der Bildgröße. Kinofilme in 4K sind oft 3840×1600: daher auch die Breite prüfen.
+  static String? resolution(int? width, int? height) {
+    final w = width ?? 0, h = height ?? 0;
+    if (w <= 0 && h <= 0) return null;
+    if (w >= 3200 || h >= 2000) return '4K';
+    if (w >= 2400 || h >= 1400) return '1440p';
+    if (w >= 1800 || h >= 1000) return '1080p';
+    if (w >= 1200 || h >= 700) return '720p';
+    return '${h}p';
+  }
+
+  /// "1080p · 5.2 Mbit/s" aus Bildgröße und Bitrate.
+  static String qualityLabel(int? width, int? height, int? bitrate) => [
+        ?resolution(width, height),
         if (bitrate != null && bitrate > 0) '${(bitrate / 1e6).toStringAsFixed(1)} Mbit/s',
       ].join(' · ');
 
@@ -255,8 +266,9 @@ class ExoEngine extends Engine {
     if (c == null || !c.isVideoTrackSupportAvailable()) return [];
     _videoTracks.clear();
     final out = <Track>[];
-    for (final t in (await c.getVideoTracks())..sort((a, b) => (b.height ?? 0).compareTo(a.height ?? 0))) {
-      final label = Engine.qualityLabel(t.height, t.bitrate);
+    for (final t in (await c.getVideoTracks())
+      ..sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))) {
+      final label = Engine.qualityLabel(t.width, t.height, t.bitrate);
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
       _videoTracks[t.id] = t;
       out.add((id: t.id, label: label));
@@ -469,9 +481,9 @@ class MpvEngine extends Engine {
   Future<List<Track>> qualities() async {
     final out = <Track>[];
     final tracks = [..._p.state.tracks.video.where((t) => t.id != 'auto' && t.id != 'no')]
-      ..sort((a, b) => (b.h ?? 0).compareTo(a.h ?? 0));
+      ..sort((a, b) => (b.w ?? 0) * (b.h ?? 0) - (a.w ?? 0) * (a.h ?? 0));
     for (final t in tracks) {
-      final label = Engine.qualityLabel(t.h, t.bitrate);
+      final label = Engine.qualityLabel(t.w, t.h, t.bitrate);
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
       out.add((id: t.id, label: label));
     }

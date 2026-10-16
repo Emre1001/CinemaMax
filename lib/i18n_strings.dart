@@ -409,6 +409,9 @@ const strings = <String, Map<String, String>>{
     'Update wird geladen …': 'Downloading update …',
     'Update fehlgeschlagen: {0}': 'Update failed: {0}',
     'Update installieren': 'Install update',
+    'ExoPlayer kann diesen Stream nicht abspielen, versuche mpv …': 'ExoPlayer can\'t play this stream, trying mpv …',
+    'Bei Fehlern automatisch mpv': 'Use mpv automatically on errors',
+    'Wenn ExoPlayer einen Stream nicht schafft (z. B. 4K, DTS-Ton)': 'When ExoPlayer can\'t handle a stream (e.g. 4K, DTS audio)',
   },
   'tr': {
     'Was läuft, Rückschau': 'Ne oynuyor, geriye dönük izleme',
@@ -819,5 +822,8 @@ const strings = <String, Map<String, String>>{
     'Update wird geladen …': 'Güncelleme indiriliyor …',
     'Update fehlgeschlagen: {0}': 'Güncelleme başarısız: {0}',
     'Update installieren': 'Güncellemeyi yükle',
+    'ExoPlayer kann diesen Stream nicht abspielen, versuche mpv …': 'ExoPlayer bu yayını oynatamıyor, mpv deneniyor …',
+    'Bei Fehlern automatisch mpv': 'Hatalarda otomatik mpv kullan',
+    'Wenn ExoPlayer einen Stream nicht schafft (z. B. 4K, DTS-Ton)': 'ExoPlayer bir yayını oynatamazsa (ör. 4K, DTS ses)',
   },
 };

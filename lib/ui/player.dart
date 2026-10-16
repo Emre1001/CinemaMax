@@ -54,6 +54,7 @@ class PlayerScreen extends StatefulWidget {
   final List<PlayItem> list;
   final int index;
   final bool fromStart;
+  final String? engine; // 'exo'/'mpv' nur für diese Wiedergabe, null = Einstellung
 
   const PlayerScreen({
     super.key,
@@ -61,6 +62,7 @@ class PlayerScreen extends StatefulWidget {
     required this.list,
     required this.index,
     this.fromStart = false,
+    this.engine,
   });
 
   /// Routenname, damit externe Links einen laufenden Player ersetzen können.
@@ -80,7 +82,8 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  late final Engine _e = Engine.create(widget.list[widget.index].url);
+  late final Engine _e = Engine.create(widget.list[widget.index].url, widget.engine);
+  bool _leaving = false;
   final _root = FocusNode(debugLabel: 'player');
   final _playBtn = FocusNode(debugLabel: 'play');
   late int _i = widget.index;
@@ -175,6 +178,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _onState() {
     final s = _e.state.value;
     if (s.playing) _retries = 0;
+    // ExoPlayer scheitert (z. B. 4K-HEVC, 10 Bit, DTS): einmal automatisch mit mpv versuchen
+    if (s.error != null && _e is ExoEngine && widget.engine == null && !_leaving && store.get('autoMpv', true)) {
+      _leaving = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        toast(context, tr('ExoPlayer kann diesen Stream nicht abspielen, versuche mpv …'));
+        _replace('mpv');
+      });
+      return;
+    }
     // Live-Streams brechen oft kurz ab: automatisch neu verbinden
     if (s.error != null &&
         _cur.live &&
@@ -1267,11 +1280,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _switchEngine() {
     store.set('engine', _e is ExoEngine ? 'mpv' : 'exo');
+    _replace(null);
+  }
+
+  /// Gleiche Liste und Folge mit anderem Player neu öffnen (Position kommt aus dem Verlauf).
+  void _replace(String? engine) {
+    _saveProgress();
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         settings: const RouteSettings(name: PlayerScreen.route),
-        builder: (_) => PlayerScreen(source: widget.source, list: widget.list, index: _i),
+        builder: (_) => PlayerScreen(source: widget.source, list: widget.list, index: _i, engine: engine),
       ),
     );
   }
@@ -1323,16 +1342,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // ---------------- Bedienoberfläche ----------------
 
-  /// "1080p", "4K" … aus der Videohöhe.
-  static String? _quality(Size s) {
-    if (s.isEmpty) return null;
-    final h = s.height;
-    if (h >= 2000) return '4K';
-    if (h >= 1400) return '1440p';
-    if (h >= 1000) return '1080p';
-    if (h >= 700) return '720p';
-    return '${h.round()}p';
-  }
+  /// "1080p", "4K" … aus der Bildgröße.
+  static String? _quality(Size s) => s.isEmpty ? null : Engine.resolution(s.width.round(), s.height.round());
 
   String _time(DateTime d) =>
       MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(d), alwaysUse24HourFormat: true);

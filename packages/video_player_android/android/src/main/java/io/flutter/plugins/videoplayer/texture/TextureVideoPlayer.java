@@ -75,7 +75,7 @@ public final class TextureVideoPlayer extends VideoPlayer implements SurfaceProd
             }
           }
           androidx.media3.exoplayer.trackselection.DefaultTrackSelector trackSelector =
-              new androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context);
+              io.flutter.plugins.videoplayer.IptvTuning.trackSelector(context);
           builder
               .setTrackSelector(trackSelector)
               .setMediaSourceFactory(asset.getMediaSourceFactory(context));

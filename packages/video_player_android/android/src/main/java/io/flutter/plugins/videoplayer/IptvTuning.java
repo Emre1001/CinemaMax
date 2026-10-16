@@ -8,6 +8,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory;
 
@@ -34,6 +35,24 @@ public final class IptvTuning {
             .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
             .build();
     return new ExoPlayer.Builder(context, renderers).setLoadControl(loadControl);
+  }
+
+  /**
+   * 4K: Standardmäßig wählt ExoPlayer höchstens die Bildschirmauflösung (Handy/TV-Box meist 1080p) und
+   * verwirft Spuren, die laut Decoder-Angabe zu groß sind. Viele Geräte spielen 4K trotzdem flüssig.
+   */
+  @NonNull
+  public static DefaultTrackSelector trackSelector(@NonNull Context context) {
+    DefaultTrackSelector selector = new DefaultTrackSelector(context);
+    selector.setParameters(
+        selector
+            .buildUponParameters()
+            .clearViewportSizeConstraints()
+            .setExceedVideoConstraintsIfNecessary(true)
+            .setExceedRendererCapabilitiesIfNecessary(true)
+            .setAllowVideoMixedMimeTypeAdaptiveness(true)
+            .setAllowVideoNonSeamlessAdaptiveness(true));
+    return selector;
   }
 
   /** Langsame IPTV-Server: längere Timeouts als die 8 s von ExoPlayer. */
