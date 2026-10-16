@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'i18n.dart';
+import 'errors.dart';
 import 'models.dart';
 import 'playback.dart';
 import 'repo.dart';
@@ -198,7 +199,7 @@ class Downloads extends ChangeNotifier {
       if (d.status == DlStatus.running) {
         // Abbruch nach Aufnahmeende ist normal
         d.status = d.received > 0 ? DlStatus.done : DlStatus.failed;
-        d.error = d.received > 0 ? null : '$e';
+        d.error = d.received > 0 ? null : explain(e);
       }
     }).whenComplete(_save);
   }
@@ -221,7 +222,7 @@ class Downloads extends ChangeNotifier {
       // Pausiert/gelöscht: kein Fehler anzeigen
       if (_active == d) {
         d.status = DlStatus.failed;
-        d.error = '$e';
+        d.error = explain(e);
       }
     }
     if (_active == d) _active = null;

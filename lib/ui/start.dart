@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../i18n.dart';
+import '../errors.dart';
 import '../links.dart';
 import '../models.dart';
 import '../repo.dart';
@@ -67,7 +68,7 @@ Future<void> openLink(BuildContext c, String raw) async {
           await f.writeAsString(text);
           url = f.path;
         } catch (e) {
-          if (c.mounted) toast(c, tr('Fehler: {0}', [e]));
+          if (c.mounted) toast(c, tr('Fehler: {0}', [explain(e)]));
           return;
         }
       }
@@ -97,14 +98,14 @@ Future<void> askLink(BuildContext c) async {
       content: SizedBox(
         width: 520,
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(
+          dpadField(TextField(
             controller: ctrl,
             autofocus: true,
             keyboardType: TextInputType.url,
             autocorrect: false,
             decoration: const InputDecoration(hintText: 'http://…'),
             onSubmitted: (v) => Navigator.pop(d, v),
-          ),
+          )),
           const SizedBox(height: 10),
           Text(tr('Stream, Video oder Playlist (M3U, Xtream get.php)'), style: const TextStyle(color: textDim, fontSize: 13)),
         ]),
@@ -144,13 +145,13 @@ class _StartScreenState extends State<StartScreen> {
         barrierDismissible: false,
         builder: (d) => AlertDialog(
           title: Text(tr('PIN eingeben')),
-          content: TextField(
+          content: dpadField(TextField(
             controller: c,
             autofocus: true,
             obscureText: true,
             keyboardType: TextInputType.number,
             onSubmitted: (v) => Navigator.pop(d, v),
-          ),
+          )),
           actions: [FilledButton(onPressed: () => Navigator.pop(d, c.text), child: Text(tr('OK')))],
         ),
       );
@@ -352,7 +353,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
             title: Text(tr('EPG-URL (XMLTV, auch .gz)')),
             content: SizedBox(
               width: 520,
-              child: TextField(controller: c, autofocus: true, keyboardType: TextInputType.url, onSubmitted: (v) => Navigator.pop(d, v)),
+              child: dpadField(TextField(controller: c, autofocus: true, keyboardType: TextInputType.url, onSubmitted: (v) => Navigator.pop(d, v))),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(d, ''), child: Text(tr('Entfernen'))),
@@ -371,7 +372,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
           await Repo.load(s, force: true);
           if (mounted) toast(context, tr('Aktualisiert'));
         } catch (e) {
-          if (mounted) toast(context, tr('Fehler: {0}', [e]));
+          if (mounted) toast(context, tr('Fehler: {0}', [explain(e)]));
         }
       case 'edit': _edit(s);
       case 'up':
@@ -580,7 +581,7 @@ class _SourceEditorState extends State<SourceEditor> {
       if (!mounted) return;
       widget.prefill != null ? openSource(context, s, replace: true) : Navigator.pop(context);
     } catch (e) {
-      if (mounted) toast(context, tr('Verbindung fehlgeschlagen: {0}', [e]));
+      if (mounted) toast(context, tr('Verbindung fehlgeschlagen: {0}', [explain(e)]));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -100,6 +100,9 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 - **libmpv** auf Linux und Windows, auf Android wählbar
 - HLS, MPEG-TS, MP4, MKV, DASH, RTSP, RTMP, UDP
 - **Auflösung wählen** (Automatisch, 1080p, 720p …) bei HLS/DASH
+- **Daten sparen**: maximale Auflösung festlegen (z. B. 480p bei langsamem Internet)
+- Scheitert ein Player, springt automatisch der andere ein (Android: ExoPlayer ↔ mpv)
+- Fehler als verständlicher Text statt Absturz
 - **Nächste Folge** mit Countdown im Abspann, **Intro überspringen**, „Schaust du noch?“
 - Folgenliste mit Staffeln im Player, Ton & Untertitel in einem Fenster
 - Bildformat, Tempo bis 3x, Sleep-Timer (auch „Ende dieser Folge“), Endzeit-Anzeige
@@ -206,6 +209,9 @@ Die MAC-Adresse muss beim Anbieter freigeschaltet sein. CinemaMax findet den Por
 | <kbd>Zurück</kbd> | zur Seitenleiste | Bedienleiste ausblenden, dann zurück |
 | <kbd>Leertaste</kbd> · <kbd>F</kbd> · <kbd>M</kbd> | | Pause · Vollbild · Ton aus (PC) |
 | <kbd>N</kbd> · <kbd>S</kbd> · <kbd>↑</kbd> <kbd>↓</kbd> | | Nächste Folge · Intro überspringen · Lautstärke (PC) |
+| <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> · <kbd>0</kbd>–<kbd>9</kbd> · <kbd>[</kbd> <kbd>]</kbd> · Mausrad | | ±10 s / Pause · Sprung 0–90 % · Tempo · Lautstärke (PC) |
+| <kbd>Info</kbd> · <kbd>Guide</kbd> · <kbd>Stop</kbd> | | Info · Sender-/Folgenliste · Beenden |
+| 🔴 🟢 🟡 🔵 | | Favorit · Ton & Untertitel · Qualität · Mehr |
 | <kbd>Strg</kbd> + <kbd>F</kbd> | Suche | |
 
 ---

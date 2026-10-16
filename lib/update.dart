@@ -8,11 +8,12 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import 'i18n.dart';
+import 'errors.dart';
 import 'store.dart';
 import 'ui/common.dart';
 
 /// Installierte Version. Muss zu `version:` in pubspec.yaml passen (test/update_test.dart prüft das).
-const appVersion = '1.5.1';
+const appVersion = '1.6.0';
 const _repo = 'Emre1001/CinemaMax';
 
 typedef Release = ({String version, String page, String? asset});
@@ -58,13 +59,11 @@ Future<Release?> fetchUpdate() async {
   );
 }
 
-/// Beim Start (höchstens alle 20 h) oder von Hand: fragt, ob aktualisiert werden soll.
+/// Bei jedem Start oder von Hand: fragt, ob aktualisiert werden soll.
 Future<void> checkForUpdate(BuildContext c, {bool manual = false}) async {
   if (!manual) {
+    // Bei jedem Start prüfen: eine Anfrage, GitHub erlaubt 60 pro Stunde
     if (!store.get('updateCheck', true)) return;
-    final last = store.get('updateCheckedAt', 0);
-    if (DateTime.now().millisecondsSinceEpoch - last < const Duration(hours: 20).inMilliseconds) return;
-    store.set('updateCheckedAt', DateTime.now().millisecondsSinceEpoch);
   } else {
     toast(c, tr('Suche nach Updates …'));
   }
@@ -72,7 +71,7 @@ Future<void> checkForUpdate(BuildContext c, {bool manual = false}) async {
   try {
     rel = await fetchUpdate();
   } catch (e) {
-    if (manual && c.mounted) toast(c, tr('Update-Prüfung fehlgeschlagen: {0}', [e]));
+    if (manual && c.mounted) toast(c, tr('Update-Prüfung fehlgeschlagen: {0}', [explain(e)]));
     return;
   }
   if (!c.mounted) return;
@@ -172,7 +171,7 @@ Future<void> _install(BuildContext c, Release rel) async {
     if (await target.exists()) await target.delete();
     if (!cancelled && c.mounted) {
       Navigator.pop(c);
-      toast(c, tr('Update fehlgeschlagen: {0}', [e]));
+      toast(c, tr('Update fehlgeschlagen: {0}', [explain(e)]));
     }
     return;
   } finally {
@@ -187,7 +186,7 @@ Future<void> _install(BuildContext c, Release rel) async {
     try {
       await const MethodChannel('cinemamax/device').invokeMethod('installApk', target.path);
     } catch (e) {
-      if (c.mounted) toast(c, tr('Update fehlgeschlagen: {0}', [e]));
+      if (c.mounted) toast(c, tr('Update fehlgeschlagen: {0}', [explain(e)]));
     }
   } else if (Platform.isWindows) {
     await Process.start(target.path, const [], mode: ProcessStartMode.detached);

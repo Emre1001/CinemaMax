@@ -1,11 +1,12 @@
+import 'dart:ui';
 import 'dart:io';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'downloads.dart';
+import 'errors.dart';
 import 'links.dart';
 import 'store.dart';
 import 'ui/common.dart';
@@ -15,6 +16,16 @@ import 'i18n.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Fehler melden statt abstürzen: kurze deutsche Meldung, Details nur im Protokoll
+  FlutterError.onError = (d) {
+    FlutterError.presentError(d);
+    reportError(d.exception, d.stack);
+  };
+  PlatformDispatcher.instance.onError = (e, st) {
+    reportError(e, st);
+    return true;
+  };
+  ErrorWidget.builder = friendlyErrorWidget;
   MediaKit.ensureInitialized();
   if (Platform.isAndroid) {
     // Alte Android-Versionen kennen ISRG Root X1 (Let's Encrypt) nicht: für Playlists/EPG nachrüsten
@@ -102,6 +113,7 @@ class _AppState extends State<App> {
       key: ValueKey(_lang),
       title: 'CinemaMax',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: messengerKey,
       theme: theme,
       scrollBehavior: const MaterialScrollBehavior().copyWith(
         dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},

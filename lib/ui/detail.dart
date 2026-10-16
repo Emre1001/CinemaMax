@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../i18n.dart';
+import '../errors.dart';
 import '../downloads.dart';
 import '../models.dart';
 import '../repo.dart';
@@ -209,7 +210,7 @@ class _DetailScreenState extends State<DetailScreen> {
               if (m.kind == Kind.series) ...[
                 const SizedBox(height: 30),
                 if (_error != null)
-                  Text(tr('Episoden konnten nicht geladen werden: {0}', [_error]), style: const TextStyle(color: textDim))
+                  Text(tr('Episoden konnten nicht geladen werden: {0}', [explain(_error!)]), style: const TextStyle(color: textDim))
                 else if (_eps == null)
                   const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
                 else ...[

@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 
 import 'i18n.dart';
 import 'store.dart';
+import 'ui/common.dart' show isAndroidTv;
 
 class PlaybackState {
   final Duration position, duration, buffered;
@@ -72,6 +73,24 @@ abstract class Engine {
   Future<void> selectQuality(String? id) async => qualityId = id;
   String? qualityId;
 
+  /// Bildhöhe je Qualität (von [qualities] gefüllt), für die Datenspar-Grenze.
+  final qualityHeight = <String, int>{};
+
+  /// Beste Qualität bis [maxHeight] wählen (Daten sparen). false = Stream hat keine Stufen.
+  Future<String?> capQuality(int maxHeight) async {
+    final list = await qualities();
+    if (list.isEmpty) return null;
+    for (final q in list) {
+      if ((qualityHeight[q.id] ?? 0) <= maxHeight) {
+        await selectQuality(q.id);
+        return q.label;
+      }
+    }
+    // Alles höher als erlaubt: kleinste Stufe
+    await selectQuality(list.last.id);
+    return list.last.label;
+  }
+
   /// "4K", "1080p" aus der Bildgröße. Kinofilme in 4K sind oft 3840×1600: daher auch die Breite prüfen.
   static String? resolution(int? width, int? height) {
     final w = width ?? 0, h = height ?? 0;
@@ -114,6 +133,7 @@ class ExoEngine extends Engine {
 
   VideoPlayerController? get _c => _ctrl.value;
   int _gen = 0;
+  bool _disposed = false;
 
   /// Reihenfolge der Versuche: wie angegeben, ohne Endung zusätzlich als HLS,
   /// bei Xtream-Live das jeweils andere Format (.ts / .m3u8).
@@ -181,7 +201,8 @@ class ExoEngine extends Engine {
     final gen = ++_gen;
     String? lastError;
     Future<VideoPlayerController?> tryOpen(String u, VideoFormat? hint) async {
-      final view = store.get('surfaceView', false) ? VideoViewType.platformView : VideoViewType.textureView;
+      // Fernseher: SurfaceView zeigt 4K in voller Auflösung und HDR mit richtigen Farben
+      final view = store.get('surfaceView', isAndroidTv) ? VideoViewType.platformView : VideoViewType.textureView;
       // Heruntergeladene Datei oder Netzwerk-Stream
       final c = u.startsWith('/')
           ? VideoPlayerController.file(File(u), viewType: view)
@@ -204,7 +225,7 @@ class ExoEngine extends Engine {
     for (final (u, hint) in _candidates(url)) {
       c = await tryOpen(u, hint);
       // Inzwischen weitergezappt: Ergebnis verwerfen
-      if (gen != _gen) {
+      if (gen != _gen || _disposed) {
         await c?.dispose();
         return;
       }
@@ -271,6 +292,8 @@ class ExoEngine extends Engine {
       final label = Engine.qualityLabel(t.width, t.height, t.bitrate);
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
       _videoTracks[t.id] = t;
+      // Kinoformat (1920×800) zählt wie 1080p: Höhe aus der Breite ableiten
+      qualityHeight[t.id] = (t.height ?? 0) > (t.width ?? 0) * 9 ~/ 16 ? t.height ?? 0 : (t.width ?? 0) * 9 ~/ 16;
       out.add((id: t.id, label: label));
     }
     return out.length > 1 ? out : [];
@@ -297,15 +320,19 @@ class ExoEngine extends Engine {
             valueListenable: c,
             builder: (_, v, _) {
               if (!v.isInitialized || v.size.isEmpty) return const ColoredBox(color: Colors.black);
+              // Größe per Layout statt Skalierung: eine SurfaceView (Fernseher) kennt keine Transformationen
               return ColoredBox(
                 color: Colors.black,
-                child: SizedBox.expand(
-                  child: FittedBox(
-                    fit: fit,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(width: v.size.width, height: v.size.height, child: VideoPlayer(c)),
-                  ),
-                ),
+                child: LayoutBuilder(builder: (_, box) {
+                  final dest = applyBoxFit(fit, v.size, box.biggest).destination;
+                  return ClipRect(
+                    child: OverflowBox(
+                      maxWidth: dest.width,
+                      maxHeight: dest.height,
+                      child: SizedBox(width: dest.width, height: dest.height, child: VideoPlayer(c)),
+                    ),
+                  );
+                }),
               );
             },
           );
@@ -314,6 +341,9 @@ class ExoEngine extends Engine {
 
   @override
   Future<void> dispose() async {
+    // Noch ladende Streams verwerfen: sonst läuft der Ton nach dem Verlassen weiter
+    _disposed = true;
+    _gen++;
     final c = _c;
     _ctrl.value = null;
     c?.removeListener(_sync);
@@ -485,6 +515,7 @@ class MpvEngine extends Engine {
     for (final t in tracks) {
       final label = Engine.qualityLabel(t.w, t.h, t.bitrate);
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
+      qualityHeight[t.id] = (t.h ?? 0) > (t.w ?? 0) * 9 ~/ 16 ? t.h ?? 0 : (t.w ?? 0) * 9 ~/ 16;
       out.add((id: t.id, label: label));
     }
     return out.length > 1 ? out : [];

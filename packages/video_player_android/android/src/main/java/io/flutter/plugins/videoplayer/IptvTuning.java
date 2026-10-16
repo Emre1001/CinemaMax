@@ -38,8 +38,9 @@ public final class IptvTuning {
   }
 
   /**
-   * 4K: Standardmäßig wählt ExoPlayer höchstens die Bildschirmauflösung (Handy/TV-Box meist 1080p) und
-   * verwirft Spuren, die laut Decoder-Angabe zu groß sind. Viele Geräte spielen 4K trotzdem flüssig.
+   * Automatische Auswahl bis zur echten Auflösung des Displays (4K-Fernseher: 4K, auch wenn die
+   * Oberfläche nur in 1080p läuft). Spuren über der Decoder-Angabe nur, wenn nichts anderes passt;
+   * feste Auflösung über das Qualitäts-Menü geht immer.
    */
   @NonNull
   public static DefaultTrackSelector trackSelector(@NonNull Context context) {
@@ -47,7 +48,6 @@ public final class IptvTuning {
     selector.setParameters(
         selector
             .buildUponParameters()
-            .clearViewportSizeConstraints()
             .setExceedVideoConstraintsIfNecessary(true)
             .setExceedRendererCapabilitiesIfNecessary(true)
             .setAllowVideoMixedMimeTypeAdaptiveness(true)

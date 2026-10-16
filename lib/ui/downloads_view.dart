@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../downloads.dart';
 import '../i18n.dart';
+import '../errors.dart';
 import '../models.dart';
 import '../store.dart';
 import 'common.dart';
@@ -24,7 +25,7 @@ class DownloadButton extends StatelessWidget {
         downloads.add(source, item, url, title);
         toast(c, tr('Download gestartet: {0}', [title]));
       } catch (e) {
-        toast(c, tr('Nicht herunterladbar: {0}', ['$e'.replaceFirst('Bad state: ', '')]));
+        toast(c, tr('Nicht herunterladbar: {0}', [explain(e)]));
       }
       return;
     }
