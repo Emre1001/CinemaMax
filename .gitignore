@@ -53,3 +53,4 @@ android/local.properties
 *.keystore
 *.jks
 key.properties
+/.claude/
