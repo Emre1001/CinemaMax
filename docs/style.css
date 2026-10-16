@@ -652,3 +652,30 @@ code { font-size: .92em; }
   .intro-tri { display: none; }
 }
 .stage-1 { gap: 40px; }
+
+/* Linux: Paketformat wählen */
+.linux-dialog {
+  width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 26px; border: 1px solid var(--line); border-radius: 22px;
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+}
+.linux-dialog[open] { animation: dlgIn .45s var(--ease-out); }
+.linux-dialog::backdrop { background: rgba(0, 0, 0, .55); backdrop-filter: blur(6px); animation: fadeOnly .3s; }
+@keyframes dlgIn { from { opacity: 0; transform: translateY(18px) scale(.97); } }
+@keyframes fadeOnly { from { opacity: 0; } }
+.ld-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0; }
+.ld-head h3 { font-size: 24px; font-weight: 800; }
+.ld-close { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--surface2); }
+.ld-close svg { width: 18px; fill: currentColor; }
+.ld-sub { margin: 8px 0 18px; color: var(--dim); }
+.ld-options { display: grid; gap: 10px; }
+.ld-opt {
+  position: relative; display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border-radius: 14px; text-decoration: none;
+  background: var(--surface2); border: 2px solid transparent; transition: border-color .25s, transform .3s var(--ease-out);
+}
+.ld-opt b { font-size: 18px; }
+.ld-opt span { color: var(--dim); font-size: 14px; }
+.ld-opt code { margin-top: 6px; font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
+.ld-opt:hover, .ld-opt:focus-visible { border-color: var(--accent); transform: translateX(4px); outline: none; }
+.ld-rec { position: absolute; top: 14px; right: 14px; padding: 3px 9px; border-radius: 100px; background: var(--accent); color: var(--on-accent); font-style: normal; font-size: 12px; font-weight: 700; display: none; }
+.ld-opt.rec { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.ld-opt.rec .ld-rec { display: inline-block; }

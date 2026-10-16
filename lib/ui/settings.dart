@@ -285,7 +285,7 @@ class SettingsBody extends StatelessWidget {
                 _row(context, tr('Verlauf löschen'), tr('{0} Einträge', [store.history.length]), onTap: () => _action(context, 'history')),
                 _row(context, tr('Favoriten löschen'), tr('{0} Einträge', [store.favs.length]), onTap: () => _action(context, 'favs')),
                 const SizedBox(height: 24),
-                Text(tr('CinemaMax 1.3'),
+                Text(tr('CinemaMax 1.4'),
                     textAlign: TextAlign.center, style: TextStyle(color: textDim, fontSize: 12)),
               ],
             ),

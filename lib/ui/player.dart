@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -61,7 +62,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final _playBtn = FocusNode(debugLabel: 'play');
   late int _i = widget.index;
   late BoxFit _fit = fits[store.get('fit', 'contain')]!.$2;
-  bool _controls = true, _fullscreen = false, _first = true, _muted = false;
+  bool _controls = true, _fullscreen = false, _first = true, _muted = false, _locked = false;
+  double _volume = 1, _audioDelay = 0, _subDelay = 0;
+  int? _lastIndex; // vorheriger Sender für „Letzter Sender“
+  double? _dragSeek; // Wischen zum Spulen: Sekunden
+  double? _dragZap; // Wischen zum Senderwechsel: Strecke, null = schon gewechselt
   Timer? _hideTimer, _saveTimer, _sleepTimer, _retryTimer, _digitTimer, _toastTimer;
   DateTime? _sleepAt;
   int _retries = 0, _openId = 0;
@@ -150,6 +155,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final n = widget.list.length;
     i = (i % n + n) % n;
     final id = ++_openId;
+    if (!retry && i != _i) _lastIndex = _i;
     setState(() {
       _i = i;
       if (!retry) _epg = [];
@@ -255,7 +261,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggleMute() {
     _muted = !_muted;
-    _e.setVolume(_muted ? 0 : 1);
+    if (!_muted && _volume == 0) _volume = 1;
+    _e.setVolume(_muted ? 0 : _volume);
     _flash(_muted ? tr('Ton aus') : tr('Ton an'));
   }
 
@@ -509,6 +516,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => _controls ? _hide() : _show(),
+              // Handy: waagerecht wischen spult, rechts senkrecht wischen ändert die Lautstärke
+              onHorizontalDragUpdate: _phone && !_locked && !_cur.live
+                  ? (d) {
+                      _dragSeek = (_dragSeek ?? 0) + d.delta.dx / MediaQuery.sizeOf(context).width * 180;
+                      final target = _e.state.value.position + Duration(seconds: _dragSeek!.round());
+                      _flash(
+                        '${_dragSeek! >= 0 ? '+' : '−'}${fmtDuration(Duration(seconds: _dragSeek!.abs().round()))}  ·  ${fmtDuration(target)}',
+                      );
+                    }
+                  : null,
+              onHorizontalDragEnd: _phone && !_locked && !_cur.live
+                  ? (_) {
+                      if (_dragSeek != null) _seek(_dragSeek!.round());
+                      _dragSeek = null;
+                    }
+                  : null,
+              onVerticalDragUpdate: _phone && !_locked
+                  ? (d) {
+                      if (d.localPosition.dx > MediaQuery.sizeOf(context).width / 2) {
+                        _setVolume(_volume - d.delta.dy / 300);
+                      } else if (_cur.live && _dragZap != null) {
+                        // Links wischen: ein Senderwechsel pro Geste
+                        _dragZap = _dragZap! + d.delta.dy;
+                        if (_dragZap!.abs() > 70) {
+                          _zap(_dragZap! < 0 ? 1 : -1);
+                          _dragZap = null;
+                        }
+                      }
+                    }
+                  : null,
+              onVerticalDragStart: _phone && !_locked ? (_) => _dragZap = 0 : null,
               onDoubleTapDown: (d) {
                 if (_desktop) {
                   _toggleFullscreen();
@@ -598,7 +636,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       child: AnimatedOpacity(
                         opacity: _controls ? 1 : 0,
                         duration: store.anim * 1.5,
-                        child: ExcludeFocus(excluding: !_controls, child: _overlay(cur, subtitle)),
+                        child: ExcludeFocus(excluding: !_controls, child: _overlay(cur, subtitle, now)),
                       ),
                     ),
                 ],
@@ -636,20 +674,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _info() => _menu(() async {
     final s = _e.state.value;
     final host = Uri.tryParse(_cur.url.split('|').first)?.host ?? '';
+    final stats = await _e.stats();
+    if (!mounted) return;
+    final rows = <(String, String)>[
+      (tr('Auflösung'), s.size.isEmpty ? tr('Nur Ton') : '${s.size.width.round()} × ${s.size.height.round()}'),
+      (tr('Player'), _e is ExoEngine ? 'ExoPlayer' : 'mpv'),
+      if (!_cur.live) (tr('Dauer'), fmtDuration(s.duration)),
+      (tr('Puffer'), fmtDuration(s.buffered - s.position < Duration.zero ? Duration.zero : s.buffered - s.position)),
+      (tr('Server'), host),
+      for (final e in stats.entries) (tr(e.key), e.value),
+      if (downloads.localFile(_cur.url) != null) (tr('Quelle'), tr('Offline verfügbar')),
+    ];
     await showDialog(
       context: context,
       builder: (d) => AlertDialog(
         title: Text(_cur.title),
-        content: Text(
-          [
-            '${tr('Auflösung')}: ${s.size.isEmpty ? tr('Nur Ton') : '${s.size.width.round()}×${s.size.height.round()}'}',
-            '${tr('Player')}: ${_e is ExoEngine ? 'ExoPlayer' : 'mpv'}',
-            if (!_cur.live) '${tr('Dauer')}: ${fmtDuration(s.duration)}',
-            '${tr('Server')}: $host',
-            if (downloads.localFile(_cur.url) != null) tr('Offline verfügbar'),
-          ].join('\n'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (k, v) in rows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 150,
+                        child: Text(k, style: const TextStyle(color: textDim)),
+                      ),
+                      Expanded(
+                        child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('OK'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(d), autofocus: true, child: const Text('OK'))],
       ),
     );
   });
@@ -708,9 +772,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ),
   );
 
-  Widget _overlay(PlayItem cur, String subtitle) {
-    final pad = EdgeInsets.symmetric(horizontal: _tv ? 48 : 20, vertical: _tv ? 32 : 14);
+  // ---------------- Bedienoberfläche ----------------
+
+  /// "1080p", "4K" … aus der Videohöhe.
+  static String? _quality(Size s) {
+    if (s.isEmpty) return null;
+    final h = s.height;
+    if (h >= 2000) return '4K';
+    if (h >= 1400) return '1440p';
+    if (h >= 1000) return '1080p';
+    if (h >= 700) return '720p';
+    return '${h.round()}p';
+  }
+
+  Widget _overlay(PlayItem cur, String subtitle, List<({String title, DateTime start, DateTime end})> now) {
+    final pad = EdgeInsets.symmetric(horizontal: _tv ? 48 : 22, vertical: _tv ? 30 : 14);
     final multi = widget.list.length > 1;
+    final compact = MediaQuery.sizeOf(context).width < 640;
+    if (_locked) {
+      // Touch-Sperre: nur der Entsperr-Knopf ist sichtbar
+      return SafeArea(
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Padding(
+            padding: pad,
+            child: _Chip(Icons.lock_rounded, tr('Entsperren'), () => setState(() => _locked = false), autofocus: true),
+          ),
+        ),
+      );
+    }
     return Stack(
       children: [
         // Verlauf oben und unten für Lesbarkeit
@@ -720,12 +810,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xCC000000), Color(0x00000000), Color(0x00000000), Color(0xE6000000)],
-                stops: [0, .28, .55, 1],
+                colors: [Color(0xD9000000), Color(0x00000000), Color(0x00000000), Color(0xF2000000)],
+                stops: [0, .3, .5, 1],
               ),
             ),
           ),
         ),
+        // ---- oben: Titel, Infos, Uhr ----
         Positioned(
           left: 0,
           right: 0,
@@ -737,16 +828,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (!_tv) ...[
-                    _Btn(Icons.arrow_back_rounded, tr('Zurück'), () => Navigator.maybePop(context)),
+                    _Round(Icons.arrow_back_rounded, tr('Zurück'), () => Navigator.maybePop(context), size: 44),
                     const SizedBox(width: 12),
                   ],
-                  if (cur.live && cur.item.logo != null) ...[
-                    SizedBox(
+                  if (cur.item.logo != null && cur.live) ...[
+                    Container(
                       width: 64,
                       height: 44,
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10)),
                       child: Artwork(cur.item.logo, cur.title, fit: BoxFit.contain, width: 64),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 14),
                   ],
                   Expanded(
                     child: Column(
@@ -756,42 +849,79 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           cur.live && multi ? '${_i + 1}  ${cur.title}' : cur.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: _tv ? 26 : 19, fontWeight: FontWeight.w800, letterSpacing: -.4),
+                          style: TextStyle(fontSize: _tv ? 28 : 20, fontWeight: FontWeight.w800, letterSpacing: -.5),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 3),
                         Text(
-                          subtitle,
-                          maxLines: 2,
-                          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+                          cur.live ? cur.item.group : subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70, fontSize: 14),
                         ),
                       ],
                     ),
                   ),
-                  if (downloads.localFile(cur.url) != null)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 16, top: 4),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.download_done_rounded, size: 18, color: Colors.white70),
-                          const SizedBox(width: 4),
-                          Text(tr('Offline'), style: const TextStyle(color: Colors.white70)),
-                        ],
+                  const SizedBox(width: 12),
+                  Wrap(
+                    spacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (cur.live) const _Badge('LIVE', dot: true),
+                      ValueListenableBuilder(
+                        valueListenable: _e.state,
+                        builder: (_, s, _) {
+                          final q = _quality(s.size);
+                          return q == null ? const SizedBox.shrink() : _Badge(q);
+                        },
                       ),
-                    ),
-                  if (_sleepAt != null)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 16, top: 4),
-                      child: Text(
-                        tr('Sleep {0} min', [_sleepAt!.difference(DateTime.now()).inMinutes]),
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    ),
-                  const Padding(padding: EdgeInsets.only(top: 2), child: Clock()),
+                      if (downloads.localFile(cur.url) != null)
+                        _Badge(tr('Offline'), icon: Icons.download_done_rounded),
+                      if (_sleepAt != null)
+                        _Badge(
+                          tr('Sleep {0} min', [_sleepAt!.difference(DateTime.now()).inMinutes]),
+                          icon: Icons.bedtime_rounded,
+                        ),
+                      if (_muted) const _Badge('', icon: Icons.volume_off_rounded),
+                      const Padding(padding: EdgeInsets.only(left: 6), child: Clock()),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
         ),
+        // ---- Mitte: große Knöpfe ----
+        Center(
+          child: FocusTraversalGroup(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (cur.live && multi)
+                  _Round(Icons.skip_previous_rounded, tr('Sender zurück'), () => _zap(-1), size: 56)
+                else if (!cur.live)
+                  _Round(Icons.replay_10_rounded, '−$_step s', () => _seek(-_step), size: 56),
+                SizedBox(width: compact ? 26 : 40),
+                ValueListenableBuilder(
+                  valueListenable: _e.state,
+                  builder: (_, s, _) => _Round(
+                    s.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    tr('Play/Pause'),
+                    _e.playOrPause,
+                    size: 82,
+                    focusNode: _playBtn,
+                    autofocus: true,
+                  ),
+                ),
+                SizedBox(width: compact ? 26 : 40),
+                if (cur.live && multi)
+                  _Round(Icons.skip_next_rounded, tr('Sender vor'), () => _zap(1), size: 56)
+                else if (!cur.live)
+                  _Round(Icons.forward_10_rounded, '+$_step s', () => _seek(_step), size: 56),
+              ],
+            ),
+          ),
+        ),
+        // ---- unten: Fortschritt / Sendung und Werkzeuge ----
         Positioned(
           left: 0,
           right: 0,
@@ -801,85 +931,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
               padding: pad,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (!cur.live) _SeekBar(engine: _e, step: _step, onUse: _show),
-                  const SizedBox(height: 10),
+                  if (cur.live) _LiveBar(now: now) else _SeekBar(engine: _e, step: _step, onUse: _show),
+                  const SizedBox(height: 14),
                   FocusTraversalGroup(
-                    child: Row(
-                      children: [
-                        if (multi)
-                          _Btn(
-                            Icons.skip_previous_rounded,
-                            cur.live ? tr('Sender zurück') : tr('Vorherige'),
-                            () => cur.live ? _zap(-1) : _play(_i - 1),
-                          ),
-                        if (!cur.live) _Btn(Icons.replay_10_rounded, '−$_step s', () => _seek(-_step)),
-                        ValueListenableBuilder(
-                          valueListenable: _e.state,
-                          builder: (_, s, _) => _Btn(
-                            s.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                            tr('Play/Pause'),
-                            _e.playOrPause,
-                            focusNode: _playBtn,
-                            autofocus: true,
-                            big: true,
-                          ),
-                        ),
-                        if (!cur.live) _Btn(Icons.forward_10_rounded, '+$_step s', () => _seek(_step)),
-                        if (multi)
-                          _Btn(
-                            Icons.skip_next_rounded,
-                            cur.live ? tr('Sender vor') : tr('Nächste'),
-                            () => cur.live ? _zap(1) : _play(_i + 1),
-                          ),
-                        // Rechte Knopfgruppe scrollt auf schmalen Bildschirmen
-                        Expanded(
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            reverse: true,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (cur.live && multi)
-                                  _Btn(Icons.format_list_bulleted_rounded, tr('Senderliste'), _channelList),
-                                ListenableBuilder(
-                                  listenable: store,
-                                  builder: (_, _) => _Btn(
-                                    store.isFav(widget.source, cur.item)
-                                        ? Icons.bookmark_rounded
-                                        : Icons.bookmark_border_rounded,
-                                    tr('Favorit'),
-                                    () => toggleFav(context, widget.source, cur.item),
-                                  ),
-                                ),
-                                _Btn(Icons.audiotrack_rounded, tr('Tonspur'), _audio),
-                                _Btn(Icons.subtitles_rounded, tr('Untertitel'), _subtitles),
-                                _Btn(Icons.aspect_ratio_rounded, tr('Bildformat'), _fitMenu),
-                                if (!cur.live) _Btn(Icons.speed_rounded, tr('Tempo'), _rateMenu),
-                                _Btn(
-                                  _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                                  tr('Ton'),
-                                  _toggleMute,
-                                ),
-                                _Btn(Icons.bedtime_rounded, tr('Sleep-Timer'), _sleepMenu),
-                                if (cur.live) _Btn(Icons.fiber_manual_record_rounded, tr('Aufnehmen'), _recordMenu),
-                                if (_phone)
-                                  _Btn(Icons.picture_in_picture_alt_rounded, tr('Bild-in-Bild'), () {
-                                    _hide();
-                                    _device.invokeMethod('pip').catchError((_) => false);
-                                  }),
-                                _Btn(Icons.info_outline_rounded, tr('Info'), _info),
-                                if (_desktop)
-                                  _Btn(
-                                    _fullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-                                    tr('Vollbild (F)'),
-                                    _toggleFullscreen,
-                                  ),
-                              ],
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          if (multi)
+                            _Chip(
+                              cur.live ? Icons.format_list_bulleted_rounded : Icons.video_library_rounded,
+                              cur.live ? tr('Senderliste') : tr('Folgen'),
+                              _channelList,
                             ),
-                          ),
-                        ),
-                      ],
+                          if (!cur.live && _i < widget.list.length - 1)
+                            _Chip(Icons.skip_next_rounded, tr('Nächste Folge'), () => _play(_i + 1)),
+                          _Chip(Icons.audiotrack_rounded, tr('Tonspur'), _audio),
+                          _Chip(Icons.subtitles_rounded, tr('Untertitel'), _subtitles),
+                          _Chip(Icons.aspect_ratio_rounded, fits.values.firstWhere((f) => f.$2 == _fit).$1, _fitMenu),
+                          if (!cur.live) _Chip(Icons.speed_rounded, '${_e.rate}x', _rateMenu),
+                          if (_phone)
+                            _Chip(Icons.lock_outline_rounded, tr('Sperren'), () => setState(() => _locked = true)),
+                          if (_desktop)
+                            _Chip(
+                              _fullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                              tr('Vollbild'),
+                              _toggleFullscreen,
+                            ),
+                          _Chip(Icons.more_horiz_rounded, tr('Mehr'), _morePanel),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -890,35 +973,363 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ],
     );
   }
+
+  // ---------------- „Mehr“-Panel ----------------
+
+  void _morePanel() => _menu(() async {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: tr('Mehr'),
+      barrierColor: Colors.black38,
+      transitionDuration: store.anim,
+      transitionBuilder: (_, a, _, child) => SlideTransition(
+        position: Tween(
+          begin: const Offset(1, 0),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
+        child: child,
+      ),
+      pageBuilder: (c, _, _) => Align(
+        alignment: Alignment.centerRight,
+        child: Material(
+          color: surface.withValues(alpha: .97),
+          child: SizedBox(
+            width: math.min(400, MediaQuery.sizeOf(c).width * .9),
+            height: double.infinity,
+            child: StatefulBuilder(builder: (c, setPanel) => _moreContent(c, setPanel)),
+          ),
+        ),
+      ),
+    );
+  });
+
+  Widget _moreContent(BuildContext c, StateSetter setPanel) {
+    final cur = _cur;
+    Widget row(IconData icon, String label, {String? value, VoidCallback? onTap, bool autofocus = false}) => Tap(
+      fill: true,
+      scale: 1,
+      autofocus: autofocus,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: Colors.white70),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+            ),
+            if (value != null) Text(value, style: const TextStyle(color: textDim)),
+          ],
+        ),
+      ),
+    );
+    // Regler mit − und + (Fernbedienung: links/rechts zwischen den Knöpfen)
+    Widget stepper(IconData icon, String label, String value, VoidCallback minus, VoidCallback plus) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: Colors.white70),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+          _Round(Icons.remove_rounded, '−', () => setPanel(minus), size: 38),
+          SizedBox(
+            width: 70,
+            child: Text(
+              value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+            ),
+          ),
+          _Round(Icons.add_rounded, '+', () => setPanel(plus), size: 38),
+        ],
+      ),
+    );
+    String secs(double v) => '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)} s';
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(10, 28, 10, 24),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          child: Text(tr('Mehr'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+        ),
+        ListenableBuilder(
+          listenable: store,
+          builder: (_, _) => row(
+            store.isFav(widget.source, cur.item) ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+            store.isFav(widget.source, cur.item) ? tr('In Favoriten') : tr('Favorit'),
+            autofocus: true,
+            onTap: () => toggleFav(context, widget.source, cur.item),
+          ),
+        ),
+        if (cur.live && _lastIndex != null && _lastIndex != _i)
+          row(
+            Icons.history_rounded,
+            tr('Letzter Sender'),
+            value: widget.list[_lastIndex!].title,
+            onTap: () {
+              Navigator.pop(c);
+              _play(_lastIndex!);
+            },
+          ),
+        if (cur.live)
+          row(
+            Icons.fiber_manual_record_rounded,
+            tr('Aufnehmen'),
+            onTap: () {
+              Navigator.pop(c);
+              _recordMenu();
+            },
+          ),
+        row(
+          Icons.bedtime_rounded,
+          tr('Sleep-Timer'),
+          value: _sleepAt == null ? tr('Aus') : '${_sleepAt!.difference(DateTime.now()).inMinutes} min',
+          onTap: () {
+            Navigator.pop(c);
+            _sleepMenu();
+          },
+        ),
+        stepper(
+          _volume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+          tr('Lautstärke'),
+          '${(_volume * 100).round()} %',
+          () => _setVolume(_volume - .1),
+          () => _setVolume(_volume + .1),
+        ),
+        if (_e.canTune) ...[
+          stepper(
+            Icons.graphic_eq_rounded,
+            tr('Ton-Versatz'),
+            secs(_audioDelay),
+            () {
+              _audioDelay -= .1;
+              _e.setAudioDelay(_audioDelay);
+            },
+            () {
+              _audioDelay += .1;
+              _e.setAudioDelay(_audioDelay);
+            },
+          ),
+          stepper(
+            Icons.closed_caption_rounded,
+            tr('Untertitel-Versatz'),
+            secs(_subDelay),
+            () {
+              _subDelay -= .1;
+              _e.setSubDelay(_subDelay);
+            },
+            () {
+              _subDelay += .1;
+              _e.setSubDelay(_subDelay);
+            },
+          ),
+        ],
+        if (_phone)
+          row(
+            Icons.picture_in_picture_alt_rounded,
+            tr('Bild-in-Bild'),
+            onTap: () {
+              Navigator.pop(c);
+              _hide();
+              _device.invokeMethod('pip').catchError((_) => false);
+            },
+          ),
+        row(
+          Icons.insights_rounded,
+          tr('Info & Statistik'),
+          onTap: () {
+            Navigator.pop(c);
+            _info();
+          },
+        ),
+        if (Platform.isAndroid)
+          row(
+            Icons.swap_horiz_rounded,
+            tr('Player'),
+            value: _e is ExoEngine ? 'ExoPlayer' : 'mpv',
+            onTap: () {
+              Navigator.pop(c);
+              store.set('engine', _e is ExoEngine ? 'mpv' : 'exo');
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PlayerScreen(source: widget.source, list: widget.list, index: _i),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  void _setVolume(double v) {
+    _volume = v.clamp(0, _e.maxVolume).toDouble();
+    _muted = _volume == 0;
+    _e.setVolume(_volume);
+    _flash(tr('Lautstärke {0} %', [(_volume * 100).round()]));
+  }
 }
 
-class _Btn extends StatelessWidget {
+/// Beschrifteter Knopf in der unteren Leiste.
+class _Chip extends StatelessWidget {
   final IconData icon;
-  final String tip;
+  final String label;
   final VoidCallback onTap;
-  final bool autofocus, big;
-  final FocusNode? focusNode;
-  const _Btn(this.icon, this.tip, this.onTap, {this.autofocus = false, this.big = false, this.focusNode});
+  final bool autofocus;
+  const _Chip(this.icon, this.label, this.onTap, {this.autofocus = false});
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 3),
-    child: Tooltip(
-      message: tip,
-      child: Tap(
-        onTap: onTap,
-        autofocus: autofocus,
-        focusNode: focusNode,
-        radius: 100,
-        scale: 1.12,
-        fill: true,
-        child: Padding(
-          padding: EdgeInsets.all(big ? 12 : 10),
-          child: Icon(icon, size: big ? 34 : 26),
+    padding: const EdgeInsets.only(right: 8),
+    child: Tap(
+      onTap: onTap,
+      autofocus: autofocus,
+      radius: 100,
+      scale: 1.06,
+      fill: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(color: Colors.white.withValues(alpha: .12), borderRadius: BorderRadius.circular(100)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 19),
+            if (label.isNotEmpty) ...[
+              const SizedBox(width: 7),
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            ],
+          ],
         ),
       ),
     ),
   );
+}
+
+/// Runder Knopf (Play/Pause, Spulen, Zurück).
+class _Round extends StatelessWidget {
+  final IconData icon;
+  final String tip;
+  final VoidCallback onTap;
+  final double size;
+  final bool autofocus;
+  final FocusNode? focusNode;
+  const _Round(this.icon, this.tip, this.onTap, {this.size = 56, this.autofocus = false, this.focusNode});
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tip,
+    child: Tap(
+      onTap: onTap,
+      autofocus: autofocus,
+      focusNode: focusNode,
+      radius: 100,
+      scale: 1.1,
+      fill: true,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.black.withValues(alpha: size > 70 ? .45 : .3),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Icon(icon, size: size * .52),
+      ),
+    ),
+  );
+}
+
+class _Badge extends StatelessWidget {
+  final String text;
+  final IconData? icon;
+  final bool dot;
+  const _Badge(this.text, {this.icon, this.dot = false});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+    decoration: BoxDecoration(
+      color: dot ? const Color(0xFFE5484D) : Colors.white.withValues(alpha: .14),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (dot) ...[
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+        ],
+        if (icon != null) Icon(icon, size: 15),
+        if (icon != null && text.isNotEmpty) const SizedBox(width: 5),
+        if (text.isNotEmpty)
+          Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: .3)),
+      ],
+    ),
+  );
+}
+
+/// Live: aktuelle Sendung mit Fortschritt und was danach kommt.
+class _LiveBar extends StatelessWidget {
+  final List<({String title, DateTime start, DateTime end})> now;
+  const _LiveBar({required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    if (now.isEmpty) return const SizedBox.shrink();
+    final p = now.first;
+    String t(DateTime d) =>
+        MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(d), alwaysUse24HourFormat: true);
+    final total = p.end.difference(p.start).inSeconds;
+    final done = total <= 0 ? 0.0 : (DateTime.now().difference(p.start).inSeconds / total).clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                p.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+            ),
+            Text(
+              '${t(p.start)} – ${t(p.end)}',
+              style: const TextStyle(color: Colors.white70, fontFeatures: [FontFeature.tabularFigures()]),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: done,
+            minHeight: 4,
+            color: store.accent,
+            backgroundColor: Colors.white24,
+          ),
+        ),
+        if (now.length > 1) ...[
+          const SizedBox(height: 6),
+          Text(
+            '${tr('Danach')} ${t(now[1].start)}  ${now[1].title}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white60, fontSize: 13),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 String fmtDuration(Duration d) {

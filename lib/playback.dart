@@ -69,6 +69,15 @@ abstract class Engine {
   Widget view(BoxFit fit);
   Future<void> dispose();
 
+  /// Technische Werte für die Info-Anzeige (Decoder, Bildrate, verworfene Bilder …).
+  Future<Map<String, String>> stats() async => {};
+
+  /// Feineinstellungen (Versatz, Lautstärke über 100 %): nur mpv.
+  bool get canTune => false;
+  double get maxVolume => 1;
+  Future<void> setAudioDelay(double seconds) async {}
+  Future<void> setSubDelay(double seconds) async {}
+
   /// Bevorzugte Sprachen aus den Einstellungen, z. B. ['de', 'deu', 'ger'].
   static List<String> langs(String key) =>
       store.get(key, 'de,deu,ger').split(',').where((s) => s.isNotEmpty).toList();
@@ -203,7 +212,7 @@ class ExoEngine extends Engine {
   @override
   double get rate => _c?.value.playbackSpeed ?? 1;
   @override
-  Future<void> setVolume(double v) async => _c?.setVolume(v);
+  Future<void> setVolume(double v) async => _c?.setVolume(v.clamp(0, 1).toDouble());
 
   @override
   Future<List<Track>> audioTracks() async {
@@ -315,6 +324,7 @@ class MpvEngine extends Engine {
     if (np is! mk.NativePlayer) return;
     Future<void> set(String k, String v) => np.setProperty(k, v).catchError((_) {});
     await set('network-timeout', '20');
+    await set('volume-max', '150');
     final a = Engine.langs('audioLang'), s = Engine.langs('subLang');
     if (a.isNotEmpty) await set('alang', a.join(','));
     if (s.isNotEmpty) await set('slang', s.join(','));
@@ -329,6 +339,49 @@ class MpvEngine extends Engine {
     _ready = false;
     state.value = const PlaybackState();
     await _p.open(mk.Media(url, httpHeaders: headers, start: start));
+  }
+
+  Future<String?> property(String k) async {
+    final np = _p.platform;
+    if (np is! mk.NativePlayer) return null;
+    try {
+      return await np.getProperty(k);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  bool get canTune => true;
+  @override
+  double get maxVolume => 1.5;
+
+  Future<void> _setProp(String k, String v) async {
+    final np = _p.platform;
+    if (np is mk.NativePlayer) await np.setProperty(k, v).catchError((_) {});
+  }
+
+  @override
+  Future<void> setAudioDelay(double seconds) => _setProp('audio-delay', seconds.toStringAsFixed(2));
+  @override
+  Future<void> setSubDelay(double seconds) => _setProp('sub-delay', seconds.toStringAsFixed(2));
+
+  @override
+  Future<Map<String, String>> stats() async {
+    final out = <String, String>{};
+    for (final (label, key) in [
+      ('Decoder', 'hwdec-current'),
+      ('Video-Codec', 'video-codec'),
+      ('Bildrate Quelle', 'container-fps'),
+      ('Bildrate angezeigt', 'estimated-display-fps'),
+      ('Verworfene Bilder', 'frame-drop-count'),
+      ('Verspätete Bilder', 'vo-delayed-frame-count'),
+      ('Puffer (s)', 'demuxer-cache-duration'),
+    ]) {
+      final v = await property(key);
+      if (v != null && v.isNotEmpty) out[label] = double.tryParse(v)?.toStringAsFixed(1) ?? v;
+    }
+    return out;
   }
 
   @override

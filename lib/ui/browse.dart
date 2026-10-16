@@ -17,7 +17,7 @@ import 'player.dart';
 import 'settings.dart';
 import 'start.dart';
 
-enum Tab { mine, live, guide, movie, series, search, downloads, settings }
+enum Tab { mine, live, guide, movie, series, search, downloads, settings, more }
 
 const _tabInfo = {
   Tab.live: ('Live TV', Icons.live_tv_rounded),
@@ -26,6 +26,7 @@ const _tabInfo = {
   Tab.mine: ('Start', Icons.home_rounded),
   Tab.guide: ('TV-Guide', Icons.view_agenda_rounded),
   Tab.search: ('Suche', Icons.search_rounded),
+  Tab.more: ('Mehr', Icons.menu_rounded),
   Tab.downloads: ('Downloads', Icons.download_rounded),
   Tab.settings: ('Einstellungen', Icons.tune_rounded),
 };
@@ -107,7 +108,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
   bool get _hasGuide => _lib!.epgUrl != null && _lib!.of(Kind.live).isNotEmpty;
 
   // Handy: höchstens 5 Einträge unten (TV-Guide über den Knopf im Live-Bereich)
-  List<Tab> get _tabs => [Tab.mine, ..._contentTabs, Tab.search];
+  // Suche steckt oben in der Leiste, „Mehr“ enthält alles Weitere wie die PC-Seitenleiste
+  List<Tab> get _tabs => [Tab.mine, ..._contentTabs, Tab.more];
 
   void _openSearch() => setState(() => _tab = Tab.search);
 
@@ -117,6 +119,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
         Tab.search => SearchView(source: widget.source, lib: _lib!),
         Tab.settings => const SettingsBody(),
         Tab.downloads => const DownloadsView(),
+        Tab.more => MoreView(
+            source: widget.source,
+            hasGuide: _hasGuide,
+            onTab: (t) => setState(() => _tab = t),
+          ),
         _ => ContentView(
             key: ValueKey(t),
             source: widget.source,
@@ -222,7 +229,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
           indicatorColor: store.accent.withValues(alpha: .22),
           height: 64,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          selectedIndex: tabs.indexOf(_tab == Tab.guide ? Tab.live : _tab).clamp(0, tabs.length - 1),
+          selectedIndex: tabs.contains(_tab) ? tabs.indexOf(_tab) : tabs.length - 1,
           onDestinationSelected: (i) => setState(() => _tab = tabs[i]),
           destinations: [
             for (final t in tabs) NavigationDestination(icon: Icon(_tabInfo[t]!.$2), label: tr(_tabInfo[t]!.$1)),
@@ -1281,4 +1288,63 @@ class _SearchViewState extends State<SearchView> {
       ),
     ]);
   }
+}
+
+
+/// Handy: alles, was auf TV/PC in der Seitenleiste steht, plus Sprache direkt wählbar.
+class MoreView extends StatelessWidget {
+  final Source source;
+  final bool hasGuide;
+  final ValueChanged<Tab> onTab;
+  const MoreView({super.key, required this.source, required this.hasGuide, required this.onTab});
+
+  Widget _item(BuildContext c, IconData icon, String title, String? sub, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Tap(
+          fill: true,
+          scale: 1,
+          radius: 14,
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            color: surface,
+            child: Row(children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(color: store.accent.withValues(alpha: .16), borderRadius: BorderRadius.circular(12)),
+                child: Icon(icon, color: store.accent),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                  if (sub != null) Text(sub, style: const TextStyle(color: textDim, fontSize: 13)),
+                ]),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: textDim),
+            ]),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        children: [
+          _item(context, Icons.search_rounded, tr('Suche'), tr('Sender, Filme, Serien …'), () => onTab(Tab.search)),
+          if (hasGuide) _item(context, Icons.view_agenda_rounded, tr('TV-Guide'), tr('Was läuft, Rückschau'), () => onTab(Tab.guide)),
+          _item(context, Icons.download_rounded, tr('Downloads'), tr('{0} Dateien · {1}', [downloads.items.length, fmtBytes(downloads.usedBytes)]),
+              () => onTab(Tab.downloads)),
+          _item(context, Icons.translate_rounded, tr('Sprache'), languages[store.get('lang', 'system')], () async {
+            final l = await pick(context, tr('Sprache'), Map<String, String>.from(languages), current: store.get('lang', 'system'));
+            if (l != null) store.set('lang', l);
+          }),
+          _item(context, Icons.palette_outlined, tr('Akzentfarbe'), hexColor(store.accent),
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+          _item(context, Icons.tune_rounded, tr('Einstellungen'), tr('Wiedergabe, Kindersicherung, Daten …'),
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+          _item(context, Icons.swap_horiz_rounded, tr('Server wechseln'), source.name, () => Navigator.pop(context)),
+        ],
+      );
 }

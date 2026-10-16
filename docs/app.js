@@ -131,8 +131,8 @@
     $('#heroDownloadText').textContent = `Für ${names[os]} herunterladen`;
     $('#osHint').textContent = `Erkannt: ${names[os]} · auch für ${Object.values(names).filter((n) => n !== names[os] && !(os === 'android' && n.startsWith('Android'))).join(', ')}`;
   }
-  const assetFor = { apk: /\.apk$/i, windows: /windows.*\.zip$/i, appimage: /\.AppImage$/i, deb: /\.deb$/i, rpm: /\.rpm$/i };
-  const osAsset = { android: 'apk', windows: 'windows', linux: 'appimage' };
+  const assetFor = { apk: /\.apk$/i, windows: /windows.*setup\.exe$/i, appimage: /\.AppImage$/i, deb: /\.deb$/i, rpm: /\.rpm$/i };
+  const osAsset = { android: 'apk', windows: 'windows' };
   fetch('https://api.github.com/repos/Emre1001/CinemaMax/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
     .then((r) => (r.ok ? r.json() : Promise.reject()))
     .then((rel) => {
@@ -143,11 +143,25 @@
       const span = $('.platform[data-os="android"] span');
       if (span && rel.tag_name) span.textContent = `APK · ${rel.tag_name} · Android 7 oder neuer`;
       if (os) {
-        const m = rel.assets.find((x) => assetFor[osAsset[os]].test(x.name));
+        const m = osAsset[os] && rel.assets.find((x) => assetFor[osAsset[os]].test(x.name));
         if (m) $('#heroDownload').href = m.browser_download_url;
       }
     })
     .catch(() => {/* bleibt bei der Release-Seite */});
+
+  /* Linux: Paketformat wählen lassen (Distribution aus dem Browser erraten, falls möglich) */
+  const linuxDialog = $('#linuxDialog');
+  const guess = /Ubuntu|Debian|Mint|Pop!?_OS|elementary|Zorin/i.test(ua) ? 'deb' : /Fedora|Red Hat|openSUSE|SUSE|CentOS|Rocky/i.test(ua) ? 'rpm' : 'appimage';
+  $$('.ld-opt').forEach((o) => o.classList.toggle('rec', o.dataset.fmt === guess));
+  function chooseLinux(e) {
+    e.preventDefault();
+    linuxDialog.showModal();
+    $(`.ld-opt[data-fmt="${guess}"]`).focus();
+  }
+  $$('[data-linux-choose]').forEach((a) => a.addEventListener('click', chooseLinux));
+  if (os === 'linux') $('#heroDownload').addEventListener('click', chooseLinux);
+  linuxDialog.addEventListener('click', (e) => { if (e.target === linuxDialog) linuxDialog.close(); });
+  $$('.ld-opt').forEach((o) => o.addEventListener('click', () => setTimeout(() => linuxDialog.close(), 300)));
 
   /* ================= So geht's ================= */
   const steps = $$('.step'), stages = $$('.stage'), stepsEl = $('#steps');
@@ -441,7 +455,9 @@
     const keyMap = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
     if (a && a.classList.contains('rk')) { /* normale Navigation */ }
     let target = null;
-    if (!a || a === document.body) target = $('#heroDownload');
+    const dlg = $('dialog[open]');
+    if (dlg) target = move(e.key, a, dlg, null);
+    else if (!a || a === document.body) target = $('#heroDownload');
     else if (inScreen) {
       target = move(e.key, a, player.hidden ? screen : player, player.hidden ? player : null);
       if (!target && player.hidden) target = move(e.key, screen, document, screen); // aus der Vorschau heraus

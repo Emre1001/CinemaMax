@@ -31,7 +31,7 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 | Gerät | Datei | Hinweis |
 |---|---|---|
 | 📱 **Android & Android TV** | [`CinemaMax-*.apk`](https://github.com/Emre1001/CinemaMax/releases/latest) | Eine APK für beide. Ab Android 7. |
-| 🪟 **Windows 10 / 11** | [`CinemaMax-*-windows-x64.zip`](https://github.com/Emre1001/CinemaMax/releases/latest) | Entpacken, `cinemamax.exe` starten. |
+| 🪟 **Windows 10 / 11** | [`CinemaMax-*-windows-setup.exe`](https://github.com/Emre1001/CinemaMax/releases/latest) | Installer starten, fertig. Ohne Admin-Rechte möglich. |
 | 🐧 **Linux (jedes)** | [`CinemaMax-*-x86_64.AppImage`](https://github.com/Emre1001/CinemaMax/releases/latest) | Ausführbar machen, starten. libmpv ist dabei. |
 | 🐧 **Ubuntu, Mint, Debian** | [`cinemamax_*_amd64.deb`](https://github.com/Emre1001/CinemaMax/releases/latest) | `sudo apt install ./cinemamax_*_amd64.deb` |
 | 🐧 **Fedora, openSUSE** | [`cinemamax-*.x86_64.rpm`](https://github.com/Emre1001/CinemaMax/releases/latest) | `sudo dnf install ./cinemamax-*.rpm` |
