@@ -28,8 +28,30 @@ class Repo {
   static Future<File> _cacheFile(Source s) async =>
       File('${(await getApplicationSupportDirectory()).path}/cache_v2_${s.id}.json');
 
+  /// Viele IPTV-Server sprechen nur http, auch wenn der Link mit https:// eingetragen wurde
+  /// (TLS-Fehler „WRONG_VERSION_NUMBER“). Dann einmal mit http versuchen und die Quelle umstellen.
+  static Future<T> withHttpFallback<T>(Source s, Future<T> Function() run) async {
+    try {
+      return await run();
+    } on TlsException catch (e, st) {
+      if (!s.url.toLowerCase().startsWith('https://')) rethrow;
+      final old = s.url;
+      s.url = 'http://${old.substring(8)}';
+      try {
+        final r = await run();
+        if (store.sources.any((x) => x.id == s.id)) store.saveSource(s);
+        return r;
+      } catch (_) {
+        s.url = old;
+        Error.throwWithStackTrace(e, st);
+      }
+    }
+  }
+
   /// Liefert Library aus Speicher, Disk-Cache (wenn jünger als Einstellung) oder Netz.
-  static Future<Library> load(Source s, {bool force = false}) async {
+  static Future<Library> load(Source s, {bool force = false}) => withHttpFallback(s, () => _load(s, force: force));
+
+  static Future<Library> _load(Source s, {bool force = false}) async {
     if (!force && _mem[s.id] != null) return _mem[s.id]!;
     // Stalker: Sitzung + Nachladen pro Kategorie, daher nur Speicher-Cache
     if (s.type == SourceType.stalker) {
@@ -103,6 +125,7 @@ class Repo {
 
   /// Handshake: Token holen. Probiert die üblichen Portal-Pfade durch.
   static Future<String> _stalkerLogin(Source s) async {
+    TlsException? tls;
     final base = s.host.replaceAll(RegExp(r'/c$'), '');
     final candidates = base.contains('/stalker_portal')
         ? ['${base.split('/stalker_portal').first}/stalker_portal/server/load.php']
@@ -123,8 +146,11 @@ class Repo {
             .timeout(const Duration(seconds: 20))
             .catchError((_) => http.Response('', 500));
         return t;
+      } on TlsException catch (e) {
+        tls = e; // Server spricht evtl. nur http: an withHttpFallback melden
       } catch (_) {/* nächsten Pfad probieren */}
     }
+    if (tls != null) throw tls;
     throw const FormatException('Portal-Login fehlgeschlagen (URL oder MAC prüfen)');
   }
 
@@ -311,7 +337,9 @@ class Repo {
       '&password=${Uri.encodeQueryComponent(s.pass)}${action.isEmpty ? '' : '&action=$action'}';
 
   /// Kontoinfo (Status, Ablaufdatum, Verbindungen). Wirft bei falschen Zugangsdaten.
-  static Future<Map<String, dynamic>> xtreamAccount(Source s) async {
+  static Future<Map<String, dynamic>> xtreamAccount(Source s) => withHttpFallback(s, () => _xtreamAccount(s));
+
+  static Future<Map<String, dynamic>> _xtreamAccount(Source s) async {
     final j = jsonDecode(await _get(_api(s)));
     if (j is! Map || j['user_info'] == null || j['user_info']['auth'] == 0) {
       throw const FormatException('Login fehlgeschlagen');

@@ -115,6 +115,8 @@ class ExoEngine extends Engine {
       if (hint == null) (url, VideoFormat.hls),
       if (path.contains('/live/') && path.endsWith('.ts')) (url.replaceFirst(RegExp(r'\.ts(?=$|\?)'), '.m3u8'), VideoFormat.hls),
       if (path.contains('/live/') && path.endsWith('.m3u8')) (url.replaceFirst(RegExp(r'\.m3u8(?=$|\?)'), '.ts'), null),
+      // https-Link auf einen Server, der nur http spricht
+      if (url.toLowerCase().startsWith('https://')) ('http://${url.substring(8)}', hint),
     ];
   }
 
