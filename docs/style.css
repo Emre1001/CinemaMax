@@ -438,7 +438,7 @@ kbd { display: inline-block; min-width: 1.8em; padding: .1em .45em; margin: 0 .1
 
 /* Kleine Animationen in den Karten (laufen nur, wenn sichtbar) */
 .card > div[aria-hidden], .card .sources-visual, .card .swatches { flex-shrink: 0; }
-.mini-guide, .mini-dl, .mini-rec, .mini-pip, .mini-search, .mini-lang, .mini-pin { margin-bottom: auto; }
+.mini-guide, .mini-dl, .mini-rec, .mini-pip, .mini-search, .mini-lang, .mini-pin, .mini-tags { margin-bottom: auto; }
 .card:not(.in) * { animation-play-state: paused !important; }
 
 .sources-visual { position: relative; width: 300px; height: 170px; }
@@ -489,6 +489,11 @@ kbd { display: inline-block; min-width: 1.8em; padding: .1em .45em; margin: 0 .1
 .mini-lang span { position: absolute; font-size: 32px; font-weight: 800; letter-spacing: -.04em; opacity: 0; animation: lang 6s var(--ease) infinite; }
 .mini-lang span:nth-child(2) { animation-delay: 2s; } .mini-lang span:nth-child(3) { animation-delay: 4s; }
 @keyframes lang { 0% { opacity: 0; transform: translateY(100%); } 8%, 28% { opacity: 1; transform: none; } 36%, 100% { opacity: 0; transform: translateY(-100%); } }
+
+/* Neue Funktionen: Knöpfe wie in der App, der erste in Akzentfarbe */
+.mini-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.mini-tags span { padding: 7px 12px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+.mini-tags span:first-child { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .mini-pin { display: flex; gap: 10px; }
 .mini-pin i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--dim); animation: pin 3.2s infinite; }
