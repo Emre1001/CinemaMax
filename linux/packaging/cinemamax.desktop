@@ -2,7 +2,8 @@
 Type=Application
 Name=CinemaMax
 Comment=IPTV, M3U und Xtream Player
-Exec=cinemamax
+Exec=cinemamax %u
 Icon=cinemamax
 Categories=AudioVideo;Video;Player;TV;
+MimeType=audio/x-mpegurl;audio/mpegurl;application/x-mpegurl;application/vnd.apple.mpegurl;video/mp4;video/x-matroska;video/mp2t;video/webm;video/x-msvideo;video/quicktime;x-scheme-handler/rtmp;x-scheme-handler/rtsp;x-scheme-handler/udp;
 Terminal=false

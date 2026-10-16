@@ -99,7 +99,11 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 - **ExoPlayer** auf Android, für IPTV angepasst (Software-Decoder als Rückfall, lange Timeouts, TS ohne Keyframe-Start)
 - **libmpv** auf Linux und Windows, auf Android wählbar
 - HLS, MPEG-TS, MP4, MKV, DASH, RTSP, RTMP, UDP
-- Tonspur, Untertitel, Bildformat, Tempo, Sleep-Timer
+- **Auflösung wählen** (Automatisch, 1080p, 720p …) bei HLS/DASH
+- **Nächste Folge** mit Countdown im Abspann, **Intro überspringen**, „Schaust du noch?“
+- Folgenliste mit Staffeln im Player, Ton & Untertitel in einem Fenster
+- Bildformat, Tempo bis 3x, Sleep-Timer (auch „Ende dieser Folge“), Endzeit-Anzeige
+- **Externe Links**: „Öffnen mit“/„Teilen“ auf Android, Dateien/Links am PC, „Link öffnen“ im Startbildschirm
 - **Bild-in-Bild** auf dem Handy, Vollbild am PC
 
 </td>
@@ -196,11 +200,12 @@ Die MAC-Adresse muss beim Anbieter freigeschaltet sein. CinemaMax findet den Por
 |---|---|---|
 | <kbd>↑</kbd> <kbd>↓</kbd> | bewegen | Sender wechseln (Live) |
 | <kbd>←</kbd> <kbd>→</kbd> | Seitenleiste / Inhalt | Senderliste bzw. spulen |
-| <kbd>OK</kbd> | öffnen | Bedienleiste zeigen |
+| <kbd>OK</kbd> | öffnen | Bedienleiste zeigen, im Abspann nächste Folge, am Anfang Intro überspringen |
 | <kbd>OK</kbd> lange / <kbd>Menü</kbd> | Favorit / Optionen | Senderliste |
 | <kbd>0</kbd>–<kbd>9</kbd> | | Sendernummer eingeben |
 | <kbd>Zurück</kbd> | zur Seitenleiste | Bedienleiste ausblenden, dann zurück |
 | <kbd>Leertaste</kbd> · <kbd>F</kbd> · <kbd>M</kbd> | | Pause · Vollbild · Ton aus (PC) |
+| <kbd>N</kbd> · <kbd>S</kbd> · <kbd>↑</kbd> <kbd>↓</kbd> | | Nächste Folge · Intro überspringen · Lautstärke (PC) |
 | <kbd>Strg</kbd> + <kbd>F</kbd> | Suche | |
 
 ---

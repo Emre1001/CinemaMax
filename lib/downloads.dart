@@ -110,11 +110,11 @@ class Downloads extends ChangeNotifier {
   int get usedBytes => items.values.where((d) => d.status == DlStatus.done).fold(0, (a, d) => a + d.received);
 
   void _save({bool force = true}) {
-    _p.setString('downloads', jsonEncode(items.values.toList()));
-    // Fortschritt höchstens 2x pro Sekunde melden, sonst ruckelt die Oberfläche
+    // Fortschritt höchstens 2x pro Sekunde speichern und melden, sonst ruckelt die Oberfläche
     final now = DateTime.now();
     if (force || now.difference(_lastNotify).inMilliseconds > 500) {
       _lastNotify = now;
+      _p.setString('downloads', jsonEncode(items.values.toList()));
       notifyListeners();
     }
   }
@@ -246,6 +246,13 @@ class Downloads extends ChangeNotifier {
     final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);
     if (have > 0 && !d.isRecording) req.headers['Range'] = 'bytes=$have-';
     final res = await client.send(req).timeout(const Duration(seconds: 30));
+    // Datei ist schon vollständig (App wurde nach dem Laden beendet)
+    if (res.statusCode == 416 && have > 0) {
+      client.close();
+      _clients.remove(d.url);
+      d.received = d.total = have;
+      return;
+    }
     if (res.statusCode == 200 && !d.isRecording) {
       have = 0; // Server unterstützt kein Fortsetzen: neu beginnen
     } else if (res.statusCode != 206) {

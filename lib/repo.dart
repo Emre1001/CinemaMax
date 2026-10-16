@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'links.dart';
 import 'm3u.dart';
 import 'models.dart';
 import 'store.dart';
@@ -16,6 +17,9 @@ class Repo {
   static Map<String, String> get headers => {'User-Agent': store.userAgent};
 
   static Future<String> _get(String url) async {
+    // Playlist als Datei (über „Öffnen mit“ übernommen oder lokal eingetragen)
+    final file = localPath(url);
+    if (file != null) return utf8.decode(await File(file).readAsBytes(), allowMalformed: true);
     final r = await http.get(Uri.parse(url), headers: headers).timeout(const Duration(seconds: 120));
     if (r.statusCode != 200) throw HttpException('HTTP ${r.statusCode}', uri: Uri.parse(url));
     return utf8.decode(r.bodyBytes, allowMalformed: true);

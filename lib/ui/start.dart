@@ -1,12 +1,19 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../i18n.dart';
+import '../links.dart';
 import '../models.dart';
 import '../repo.dart';
 import '../store.dart';
+import '../update.dart';
 import 'browse.dart';
 import 'common.dart';
 import 'downloads_view.dart';
+import 'player.dart';
 import 'settings.dart';
 
 const iptvCountries = {
@@ -35,6 +42,81 @@ void openSource(BuildContext c, Source s, {bool replace = false}) {
   store.set('lastSource', s.id);
   final route = MaterialPageRoute(builder: (_) => BrowseScreen(source: s));
   replace ? Navigator.pushReplacement(c, route) : Navigator.push(c, route);
+}
+
+/// Quelle für direkt geöffnete Links (nicht gespeichert).
+final linkSource = Source(id: 'link', name: 'Link', type: SourceType.m3u, url: '');
+
+/// Externer Link: Playlist/Xtream als Server anlegen, Stream oder Datei direkt abspielen.
+Future<void> openLink(BuildContext c, String raw) async {
+  final link = extractLink(raw);
+  if (link == null) return toast(c, tr('Kein Link erkannt: {0}', [raw]));
+  toast(c, tr('Link wird geprüft …'));
+  final kind = await probeLink(link);
+  if (!c.mounted) return;
+  // Laufenden Player schließen, statt einen zweiten darüber zu öffnen
+  Navigator.popUntil(c, (r) => r.settings.name != PlayerScreen.route);
+  switch (kind) {
+    case LinkKind.xtream || LinkKind.playlist:
+      var url = link;
+      if (link.startsWith('content://')) {
+        // Freigabe gilt nur kurz: Playlist in den App-Speicher kopieren
+        try {
+          final text = await Links.readContent(link, 64 << 20);
+          final f = File('${(await getApplicationSupportDirectory()).path}/playlist_${DateTime.now().millisecondsSinceEpoch}.m3u');
+          await f.writeAsString(text);
+          url = f.path;
+        } catch (e) {
+          if (c.mounted) toast(c, tr('Fehler: {0}', [e]));
+          return;
+        }
+      }
+      if (!c.mounted) return;
+      Navigator.push(c, MaterialPageRoute(builder: (_) => SourceEditor(prefill: url, prefillName: linkTitle(link))));
+    case LinkKind.vod || LinkKind.live:
+      final item = MediaItem(
+        id: link,
+        name: linkTitle(link),
+        kind: kind == LinkKind.vod ? Kind.movie : Kind.live,
+        group: tr('Externer Link'),
+        url: link,
+      );
+      PlayerScreen.open(c, linkSource, [PlayItem(link, item.name, item)], 0);
+  }
+}
+
+/// Dialog „Link öffnen“, mit Link aus der Zwischenablage vorbelegt.
+Future<void> askLink(BuildContext c) async {
+  final clip = await Clipboard.getData(Clipboard.kTextPlain).catchError((_) => null);
+  final ctrl = TextEditingController(text: extractLink(clip?.text ?? '') ?? '');
+  if (!c.mounted) return;
+  final v = await showDialog<String>(
+    context: c,
+    builder: (d) => AlertDialog(
+      title: Text(tr('Link öffnen')),
+      content: SizedBox(
+        width: 520,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextField(
+            controller: ctrl,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: const InputDecoration(hintText: 'http://…'),
+            onSubmitted: (v) => Navigator.pop(d, v),
+          ),
+          const SizedBox(height: 10),
+          Text(tr('Stream, Video oder Playlist (M3U, Xtream get.php)'), style: const TextStyle(color: textDim, fontSize: 13)),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Abbrechen'))),
+        FilledButton(onPressed: () => Navigator.pop(d, ctrl.text), child: Text(tr('Öffnen'))),
+      ],
+    ),
+  );
+  ctrl.dispose();
+  if (v != null && v.trim().isNotEmpty && c.mounted) await openLink(c, v);
 }
 
 /// Startbildschirm: Auswahl IPTV oder eigene Playlist (M3U / Xtream).
@@ -75,7 +157,23 @@ class _StartScreenState extends State<StartScreen> {
       if (v == pin) break;
     }
     if (!mounted) return;
-    _autoOpen();
+    // Externe Links erst nach der PIN-Abfrage öffnen
+    Links.pending.addListener(_onLink);
+    Links.pending.value != null ? _onLink() : _autoOpen();
+    checkForUpdate(context);
+  }
+
+  void _onLink() {
+    final l = Links.pending.value;
+    if (l == null || !mounted) return;
+    Links.pending.value = null;
+    openLink(context, l);
+  }
+
+  @override
+  void dispose() {
+    Links.pending.removeListener(_onLink);
+    super.dispose();
   }
 
   void _autoOpen() {
@@ -117,6 +215,15 @@ class _StartScreenState extends State<StartScreen> {
             Row(children: [
               const Wordmark(),
               const Spacer(),
+              Tap(
+                radius: 100,
+                onTap: () => askLink(context),
+                child: Tooltip(
+                  message: tr('Link öffnen'),
+                  child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.link_rounded)),
+                ),
+              ),
+              const SizedBox(width: 4),
               // Downloads auch ohne Internet erreichbar
               Tap(
                 radius: 100,
@@ -387,7 +494,7 @@ class _SourceTileState extends State<_SourceTile> {
               Text(s.name, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
               SizedBox(height: 3),
               Text(
-                '${_typeLabel[s.type]} · ${Uri.tryParse(s.url)?.host ?? s.url}${s.type == SourceType.stalker ? ' · ${s.mac}' : ''}'
+                '${_typeLabel[s.type]} · ${(Uri.tryParse(s.url)?.host ?? '').isEmpty ? s.url : Uri.parse(s.url).host}${s.type == SourceType.stalker ? ' · ${s.mac}' : ''}'
                 '${_info == null ? '' : '\n$_info'}',
                 style: TextStyle(color: textDim, fontSize: 13, height: 1.4),
               ),
@@ -414,16 +521,19 @@ final _macRe = RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$');
 class SourceEditor extends StatefulWidget {
   final Source? source;
   final bool iptv;
-  const SourceEditor({super.key, this.source, this.iptv = false});
+  /// Von außen geöffneter Playlist-Link: vorbelegt, nach dem Speichern direkt öffnen.
+  final String? prefill, prefillName;
+  const SourceEditor({super.key, this.source, this.iptv = false, this.prefill, this.prefillName});
 
   @override
   State<SourceEditor> createState() => _SourceEditorState();
 }
 
 class _SourceEditorState extends State<SourceEditor> {
-  late SourceType _type = widget.source?.type ?? (widget.iptv ? SourceType.iptv : SourceType.xtream);
-  late final _name = TextEditingController(text: widget.source?.name);
-  late final _url = TextEditingController(text: widget.source?.url);
+  late SourceType _type = widget.source?.type ??
+      (widget.iptv ? SourceType.iptv : (widget.prefill != null ? SourceType.m3u : SourceType.xtream));
+  late final _name = TextEditingController(text: widget.source?.name ?? widget.prefillName);
+  late final _url = TextEditingController(text: widget.source?.url ?? widget.prefill);
   late final _user = TextEditingController(text: widget.source?.user);
   late final _pass = TextEditingController(text: widget.source?.pass);
   // MAG-Geräte nutzen das Präfix 00:1A:79
@@ -437,7 +547,8 @@ class _SourceEditorState extends State<SourceEditor> {
     final mac = _mac.text.trim().toUpperCase().replaceAll('-', ':');
     if (url.isEmpty) return toast(context, tr('URL fehlt'));
     if (type == SourceType.stalker && !_macRe.hasMatch(mac)) return toast(context, tr('MAC-Adresse ungültig (Format 00:1A:79:XX:XX:XX)'));
-    if (!url.startsWith('http')) url = 'http://$url';
+    // Ohne Schema: http ergänzen (nicht bei Dateien und rtmp/… -Links)
+    if (!url.contains('://') && localPath(url) == null) url = 'http://$url';
     // get.php-Links sind Xtream-Zugänge: als Xtream speichern (Filme/Serien/EPG besser)
     final u = Uri.tryParse(url);
     if (type == SourceType.m3u && u != null && u.path.endsWith('get.php') && u.queryParameters['username'] != null) {
@@ -448,7 +559,11 @@ class _SourceEditorState extends State<SourceEditor> {
     }
     final s = Source(
       id: widget.source?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-      name: _name.text.trim().isEmpty ? (u?.host ?? tr('Server')) : _name.text.trim(),
+      name: _name.text.trim().isNotEmpty
+          ? _name.text.trim()
+          : (u?.host.isNotEmpty ?? false)
+          ? u!.host
+          : tr('Server'),
       type: type,
       url: url,
       user: user,
@@ -462,7 +577,8 @@ class _SourceEditorState extends State<SourceEditor> {
       }
       await Repo.load(s, force: true);
       store.saveSource(s);
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      widget.prefill != null ? openSource(context, s, replace: true) : Navigator.pop(context);
     } catch (e) {
       if (mounted) toast(context, tr('Verbindung fehlgeschlagen: {0}', [e]));
     } finally {
@@ -503,7 +619,7 @@ class _SourceEditorState extends State<SourceEditor> {
                   Pill(
                     {SourceType.xtream: tr('Xtream Codes'), SourceType.m3u: tr('M3U-Link'), SourceType.stalker: tr('Stalker-Portal')}[t]!,
                     selected: _type == t,
-                    autofocus: i == 0,
+                    autofocus: i == 0 && widget.prefill == null,
                     onTap: () => setState(() => _type = t),
                   ),
               ]),
@@ -528,7 +644,7 @@ class _SourceEditorState extends State<SourceEditor> {
               alignment: Alignment.centerLeft,
               child: _busy
                   ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())
-                  : Pill(tr('Verbinden & speichern'), icon: Icons.check, primary: true, autofocus: widget.iptv, onTap: _save),
+                  : Pill(tr('Verbinden & speichern'), icon: Icons.check, primary: true, autofocus: widget.iptv || widget.prefill != null, onTap: _save),
             ),
             const SizedBox(height: 16),
             Text(

@@ -66,6 +66,18 @@ abstract class Engine {
   Future<void> selectAudio(String id);
   Future<List<Track>> subtitleTracks();
   Future<void> selectSubtitle(String id);
+
+  /// Auflösungen (HLS/DASH-Varianten). Leer = nur eine Qualität. [qualityId] null = automatisch.
+  Future<List<Track>> qualities() async => [];
+  Future<void> selectQuality(String? id) async => qualityId = id;
+  String? qualityId;
+
+  /// "1080p · 5.2 Mbit/s" aus Höhe und Bitrate.
+  static String qualityLabel(int? height, int? bitrate) => [
+        if (height != null && height > 0) height >= 2000 ? '4K' : '${height}p',
+        if (bitrate != null && bitrate > 0) '${(bitrate / 1e6).toStringAsFixed(1)} Mbit/s',
+      ].join(' · ');
+
   Widget view(BoxFit fit);
   Future<void> dispose();
 
@@ -95,7 +107,7 @@ class ExoEngine extends Engine {
   /// Reihenfolge der Versuche: wie angegeben, ohne Endung zusätzlich als HLS,
   /// bei Xtream-Live das jeweils andere Format (.ts / .m3u8).
   static List<(String, VideoFormat?)> _candidates(String url) {
-    if (url.startsWith('/')) return [(url, null)];
+    if (url.startsWith('/') || url.startsWith('content://')) return [(url, null)];
     final hint = _hint(url);
     final path = Uri.tryParse(url)?.path ?? url;
     return [
@@ -151,6 +163,7 @@ class ExoEngine extends Engine {
     await old?.dispose();
     state.value = const PlaybackState();
     _completedSent = false;
+    qualityId = null;
 
     final gen = ++_gen;
     String? lastError;
@@ -159,6 +172,8 @@ class ExoEngine extends Engine {
       // Heruntergeladene Datei oder Netzwerk-Stream
       final c = u.startsWith('/')
           ? VideoPlayerController.file(File(u), viewType: view)
+          : u.startsWith('content://')
+          ? VideoPlayerController.contentUri(Uri.parse(u), viewType: view)
           : VideoPlayerController.networkUrl(Uri.parse(u.contains(' ') ? Uri.encodeFull(u) : u),
               httpHeaders: headers, formatHint: hint, viewType: view);
       try {
@@ -228,6 +243,29 @@ class ExoEngine extends Engine {
   Future<void> selectAudio(String id) async {
     audioId = id;
     await _c?.selectAudioTrack(id);
+  }
+
+  final _videoTracks = <String, VideoTrack>{};
+
+  @override
+  Future<List<Track>> qualities() async {
+    final c = _c;
+    if (c == null || !c.isVideoTrackSupportAvailable()) return [];
+    _videoTracks.clear();
+    final out = <Track>[];
+    for (final t in (await c.getVideoTracks())..sort((a, b) => (b.height ?? 0).compareTo(a.height ?? 0))) {
+      final label = Engine.qualityLabel(t.height, t.bitrate);
+      if (label.isEmpty || out.any((o) => o.label == label)) continue;
+      _videoTracks[t.id] = t;
+      out.add((id: t.id, label: label));
+    }
+    return out.length > 1 ? out : [];
+  }
+
+  @override
+  Future<void> selectQuality(String? id) async {
+    qualityId = id;
+    await _c?.selectVideoTrack(id == null ? null : _videoTracks[id]);
   }
 
   // shortcut: ExoPlayer über video_player zeigt keine eingebetteten Untertitel; dafür Engine "mpv" wählen
@@ -337,6 +375,7 @@ class MpvEngine extends Engine {
   Future<void> open(String url, Map<String, String> headers, {Duration? start}) async {
     await _configure();
     _ready = false;
+    qualityId = null;
     state.value = const PlaybackState();
     await _p.open(mk.Media(url, httpHeaders: headers, start: start));
   }
@@ -422,6 +461,27 @@ class MpvEngine extends Engine {
   Future<void> selectSubtitle(String id) async {
     subtitleId = id;
     await _p.setSubtitleTrack(_p.state.tracks.subtitle.firstWhere((t) => t.id == id));
+  }
+
+  @override
+  Future<List<Track>> qualities() async {
+    final out = <Track>[];
+    final tracks = [..._p.state.tracks.video.where((t) => t.id != 'auto' && t.id != 'no')]
+      ..sort((a, b) => (b.h ?? 0).compareTo(a.h ?? 0));
+    for (final t in tracks) {
+      final label = Engine.qualityLabel(t.h, t.bitrate);
+      if (label.isEmpty || out.any((o) => o.label == label)) continue;
+      out.add((id: t.id, label: label));
+    }
+    return out.length > 1 ? out : [];
+  }
+
+  @override
+  Future<void> selectQuality(String? id) async {
+    qualityId = id;
+    await _p.setVideoTrack(id == null
+        ? mk.VideoTrack.auto()
+        : _p.state.tracks.video.firstWhere((t) => t.id == id, orElse: mk.VideoTrack.auto));
   }
 
   @override

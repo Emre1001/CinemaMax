@@ -57,10 +57,10 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
     line = line.trim();
     if (line.isEmpty) continue;
     if (line.startsWith('#EXTINF')) {
-      attrs = {for (final m in _attr.allMatches(line)) m.group(1)!.toLowerCase(): m.group(2)!};
-      // Titel = alles nach dem letzten Komma außerhalb von Anführungszeichen
-      final q = line.lastIndexOf('"');
-      final c = line.indexOf(',', q < 0 ? 0 : q);
+      final found = _attr.allMatches(line).toList();
+      attrs = {for (final m in found) m.group(1)!.toLowerCase(): m.group(2)!};
+      // Titel = alles nach dem ersten Komma hinter den Attributen (darf selbst " und , enthalten)
+      final c = line.indexOf(',', found.isEmpty ? 0 : found.last.end);
       title = c < 0 ? attrs['tvg-name'] : line.substring(c + 1).trim();
       continue;
     }
