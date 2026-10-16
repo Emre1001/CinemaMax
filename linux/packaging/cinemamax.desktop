@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CinemaMax
+Comment=IPTV, M3U und Xtream Player
+Exec=cinemamax
+Icon=cinemamax
+Categories=AudioVideo;Video;Player;TV;
+Terminal=false

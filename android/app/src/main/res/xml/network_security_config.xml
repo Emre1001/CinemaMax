@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- IPTV-Server nutzen oft http (Klartext). Ältere Android-TV-Boxen (Android 7) kennen das
+     Let's-Encrypt-Stammzertifikat ISRG Root X1 nicht: deshalb mitgeliefert. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/isrgrootx1" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
