@@ -30,6 +30,11 @@ http://example.com/stream.m3u8
     expect(dark.episodes!.map((e) => '${e.season}x${e.number}'), ['1x2', '2x1']);
   });
 
+  test('Titel mit Anführungszeichen und Komma', () {
+    final r = parseM3u('#EXTM3U\n#EXTINF:-1 tvg-name="X" group-title="Filme",Der "Pate", Teil 2\nhttp://h/movie/1.mkv\n');
+    expect(r[Kind.movie]!.single.name, 'Der "Pate", Teil 2');
+  });
+
   test('IPTV-Modus: alles ist Live', () {
     final r = parseM3u(sample, liveOnly: true);
     expect(r[Kind.live]!.length, 5);

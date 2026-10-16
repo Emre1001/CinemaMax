@@ -74,7 +74,7 @@ class _DetailScreenState extends State<DetailScreen> {
     PlayerScreen.open(
       context,
       widget.source,
-      [for (final x in eps) PlayItem(x.url, 'S${x.season} E${x.number} · ${x.title}', m)],
+      episodeList(m, eps),
       eps.indexOf(e),
     );
   }

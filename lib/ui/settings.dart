@@ -8,6 +8,7 @@ import '../i18n.dart';
 
 import '../repo.dart';
 import '../store.dart';
+import '../update.dart';
 import 'common.dart';
 import 'start.dart';
 
@@ -69,6 +70,7 @@ final _sections = <String, List<_Opt>>{
   'Start': [
     const _Opt('intro', 'Startanimation', true),
     const _Opt('introSound', 'Startton', true),
+    const _Opt('updateCheck', 'Nach Updates fragen', true, hint: 'Beim Start prüfen, ob eine neue Version da ist'),
     const _Opt('askOnStart', 'Beim Start Modus wählen', true, hint: 'Aus: letzte Quelle direkt öffnen'),
     const _Opt('startTab', 'Startbereich', 'mine',
         options: {'mine': 'Start', 'live': 'Live TV', 'guide': 'TV-Guide', 'movie': 'Filme', 'series': 'Serien'}),
@@ -113,6 +115,15 @@ final _sections = <String, List<_Opt>>{
     const _Opt('fit', 'Standard-Bildformat', 'contain', options: {'contain': 'Einpassen', 'cover': 'Zoomen', 'fill': 'Strecken'}),
     const _Opt('resume', 'An letzter Stelle fortsetzen', true),
     const _Opt('autoNext', 'Nächste Folge automatisch', true),
+    const _Opt('nextBefore', 'Nächste Folge anbieten', 30,
+        hint: 'Sekunden vor dem Ende (Abspann)',
+        options: {15: '15 s', 30: '30 s', 45: '45 s', 60: '60 s', 90: '90 s', 120: '2 min'}),
+    const _Opt('nextCountdown', 'Countdown bis zur nächsten Folge', 10,
+        options: {5: '5 s', 10: '10 s', 15: '15 s', 20: '20 s'}),
+    const _Opt('introSkip', 'Intro überspringen', 85,
+        hint: 'Knopf in den ersten Minuten einer Folge, springt so weit vor',
+        options: {0: 'Aus', 60: '60 s', 75: '75 s', 85: '85 s', 90: '90 s', 120: '120 s'}),
+    const _Opt('stillWatching', '„Schaust du noch?“ nach 3 Folgen', true, hint: 'Pausiert, wenn niemand mehr zuschaut'),
     const _Opt('autoReconnect', 'Live automatisch neu verbinden', true),
     const _Opt('seekStep', 'Spulschritt', 10, options: {5: '5 s', 10: '10 s', 15: '15 s', 30: '30 s', 60: '60 s'}),
     const _Opt('zapInvert', 'Senderwechsel umkehren', false, hint: 'Pfeil hoch = nächster Sender'),
@@ -284,8 +295,10 @@ class SettingsBody extends StatelessWidget {
                 _row(context, tr('Cache leeren'), tr('Playlists und Bilder neu laden'), onTap: () => _action(context, 'cache')),
                 _row(context, tr('Verlauf löschen'), tr('{0} Einträge', [store.history.length]), onTap: () => _action(context, 'history')),
                 _row(context, tr('Favoriten löschen'), tr('{0} Einträge', [store.favs.length]), onTap: () => _action(context, 'favs')),
+                _row(context, tr('Nach Updates suchen'), tr('Installiert: {0}', [appVersion]),
+                    onTap: () => checkForUpdate(context, manual: true)),
                 const SizedBox(height: 24),
-                Text(tr('CinemaMax 1.4'),
+                Text('CinemaMax $appVersion',
                     textAlign: TextAlign.center, style: TextStyle(color: textDim, fontSize: 12)),
               ],
             ),

@@ -1008,8 +1008,8 @@ class MineView extends StatelessWidget {
                       item: MediaItem.fromJson(e.value['item']),
                       caption: e.value['title'],
                       progress: store.progressOf(e.key),
-                      onTap: () => PlayerScreen.open(
-                          context, source, [PlayItem(e.key, e.value['title'], MediaItem.fromJson(e.value['item']))], 0),
+                      onTap: () => resumeFromHistory(
+                          context, source, e.key, e.value['title'], MediaItem.fromJson(e.value['item'])),
                     ),
                   ),
               ]
@@ -1159,7 +1159,12 @@ class _SearchViewState extends State<SearchView> {
 
   void _run(String q) {
     final n = normalize(q);
-    if (n.isEmpty) return setState(() => _results = {});
+    if (n.isEmpty) {
+      return setState(() {
+        _results = {};
+        _remoteBusy = false;
+      });
+    }
     final words = n.split(' ');
     final res = <Kind, List<MediaItem>>{};
     for (final k in Kind.values) {

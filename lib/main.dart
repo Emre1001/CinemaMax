@@ -6,13 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'downloads.dart';
+import 'links.dart';
 import 'store.dart';
 import 'ui/common.dart';
 import 'ui/splash.dart';
 import 'ui/start.dart';
 import 'i18n.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   if (Platform.isAndroid) {
@@ -26,6 +27,7 @@ Future<void> main() async {
   }
   await store.init();
   await downloads.init();
+  await Links.init(args);
   if (Platform.isAndroid) {
     try {
       isAndroidTv = await const MethodChannel('cinemamax/device').invokeMethod<bool>('isTv') ?? false;
