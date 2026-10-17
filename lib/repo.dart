@@ -3,8 +3,10 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'i18n.dart';
 import 'links.dart';
 import 'm3u.dart';
 import 'models.dart';
@@ -20,16 +22,54 @@ class Repo {
     // Playlist als Datei (über „Öffnen mit“ übernommen oder lokal eingetragen)
     final file = localPath(url);
     if (file != null) return utf8.decode(await File(file).readAsBytes(), allowMalformed: true);
-    final r = await http.get(Uri.parse(url), headers: headers).timeout(const Duration(seconds: 120));
-    if (r.statusCode != 200) throw HttpException('HTTP ${r.statusCode}', uri: Uri.parse(url));
+    // Große Anbieter liefern 50 MB+ Filmlisten, langsam erzeugt
+    final r = await _request(Uri.parse(url), headers, const Duration(seconds: 180));
+    if (r.statusCode < 200 || r.statusCode > 299) throw HttpException('HTTP ${r.statusCode}', uri: Uri.parse(url));
     return utf8.decode(r.bodyBytes, allowMalformed: true);
+  }
+
+  /// GET; IPTV-Server haben oft abgelaufene oder selbst signierte Zertifikate: dann ohne Prüfung erneut.
+  static Future<http.Response> _request(Uri u, Map<String, String> h, Duration timeout) async {
+    try {
+      return await http.get(u, headers: h).timeout(timeout);
+    } on HandshakeException catch (e) {
+      if (!'$e'.contains('CERTIFICATE_VERIFY_FAILED')) rethrow;
+      final c = IOClient(HttpClient()..badCertificateCallback = (_, _, _) => true);
+      try {
+        return await c.get(u, headers: h).timeout(timeout);
+      } finally {
+        c.close();
+      }
+    }
   }
 
   static Future<File> _cacheFile(Source s) async =>
       File('${(await getApplicationSupportDirectory()).path}/cache_v2_${s.id}.json');
 
+  /// Viele IPTV-Server sprechen nur http, auch wenn der Link mit https:// eingetragen wurde
+  /// (TLS-Fehler „WRONG_VERSION_NUMBER“). Dann einmal mit http versuchen und die Quelle umstellen.
+  static Future<T> withHttpFallback<T>(Source s, Future<T> Function() run) async {
+    try {
+      return await run();
+    } on TlsException catch (e, st) {
+      if (!s.url.toLowerCase().startsWith('https://')) rethrow;
+      final old = s.url;
+      s.url = 'http://${old.substring(8)}';
+      try {
+        final r = await run();
+        if (store.sources.any((x) => x.id == s.id)) store.saveSource(s);
+        return r;
+      } catch (_) {
+        s.url = old;
+        Error.throwWithStackTrace(e, st);
+      }
+    }
+  }
+
   /// Liefert Library aus Speicher, Disk-Cache (wenn jünger als Einstellung) oder Netz.
-  static Future<Library> load(Source s, {bool force = false}) async {
+  static Future<Library> load(Source s, {bool force = false}) => withHttpFallback(s, () => _load(s, force: force));
+
+  static Future<Library> _load(Source s, {bool force = false}) async {
     if (!force && _mem[s.id] != null) return _mem[s.id]!;
     // Stalker: Sitzung + Nachladen pro Kategorie, daher nur Speicher-Cache
     if (s.type == SourceType.stalker) {
@@ -57,7 +97,9 @@ class Repo {
       SourceType.m3u || SourceType.iptv => await () async {
           final text = await _get(s.url);
           epg = m3uEpgUrl(text);
-          return compute(_parseM3u, (text, s.type == SourceType.iptv));
+          final items = await compute(_parseM3u, (text, s.type == SourceType.iptv));
+          if (items.values.every((l) => l.isEmpty)) throw const FormatException('Keine Einträge in der Playlist');
+          return items;
         }(),
       SourceType.xtream => await _loadXtream(s),
       SourceType.stalker => throw StateError('unreachable'),
@@ -103,43 +145,43 @@ class Repo {
 
   /// Handshake: Token holen. Probiert die üblichen Portal-Pfade durch.
   static Future<String> _stalkerLogin(Source s) async {
+    TlsException? tls;
     final base = s.host.replaceAll(RegExp(r'/c$'), '');
     final candidates = base.contains('/stalker_portal')
         ? ['${base.split('/stalker_portal').first}/stalker_portal/server/load.php']
         : ['$base/portal.php', '$base/server/load.php', '$base/stalker_portal/server/load.php'];
     for (final ep in candidates) {
       try {
-        final r = await http
-            .get(Uri.parse('$ep?type=stb&action=handshake&token=&JsHttpRequest=1-xml'), headers: _stalkerHeaders(s))
-            .timeout(const Duration(seconds: 20));
-        final t = (jsonDecode(r.body) as Map)['js']?['token'];
+        final r = await _request(Uri.parse('$ep?type=stb&action=handshake&token=&JsHttpRequest=1-xml'),
+            _stalkerHeaders(s), const Duration(seconds: 20));
+        final t = (_json(r.body) as Map)['js']?['token'];
         if (t is! String || t.isEmpty) continue;
         _stalkerEndpoint[s.id] = ep;
         _stalkerToken[s.id] = t;
         // Viele Portale schalten die Sitzung erst nach get_profile frei
-        await http
-            .get(Uri.parse('$ep?type=stb&action=get_profile&hd=1&stb_type=MAG250&JsHttpRequest=1-xml'),
-                headers: _stalkerHeaders(s, t))
-            .timeout(const Duration(seconds: 20))
+        await _request(Uri.parse('$ep?type=stb&action=get_profile&hd=1&stb_type=MAG250&JsHttpRequest=1-xml'),
+                _stalkerHeaders(s, t), const Duration(seconds: 20))
             .catchError((_) => http.Response('', 500));
         return t;
+      } on TlsException catch (e) {
+        tls = e; // Server spricht evtl. nur http: an withHttpFallback melden
       } catch (_) {/* nächsten Pfad probieren */}
     }
+    if (tls != null) throw tls;
     throw const FormatException('Portal-Login fehlgeschlagen (URL oder MAC prüfen)');
   }
 
   static Future<dynamic> _stalker(Source s, String query) async {
     var token = _stalkerToken[s.id] ?? await _stalkerLogin(s);
-    Future<http.Response> go(String t) => http
-        .get(Uri.parse('${_stalkerEndpoint[s.id]}?$query&JsHttpRequest=1-xml'), headers: _stalkerHeaders(s, t))
-        .timeout(const Duration(seconds: 45));
+    Future<http.Response> go(String t) => _request(
+        Uri.parse('${_stalkerEndpoint[s.id]}?$query&JsHttpRequest=1-xml'), _stalkerHeaders(s, t), const Duration(seconds: 45));
     var r = await go(token);
     if (r.statusCode == 401 || r.body.contains('Authorization failed')) {
       token = await _stalkerLogin(s); // Token abgelaufen
       r = await go(token);
     }
     if (r.statusCode != 200) throw HttpException('HTTP ${r.statusCode}');
-    return (jsonDecode(utf8.decode(r.bodyBytes, allowMalformed: true)) as Map)['js'];
+    return (_json(utf8.decode(r.bodyBytes, allowMalformed: true)) as Map)['js'];
   }
 
   static String? _stalkerLogo(Source s, dynamic v) {
@@ -306,35 +348,46 @@ class Repo {
 
   // ---------------- Xtream Codes ----------------
 
+  /// Zugangsdaten als Pfadteil der Stream-Links: Sonderzeichen (#, ?, Leerzeichen) kodieren.
+  static String _path(Source s, String kind) =>
+      '${s.host}/$kind/${Uri.encodeComponent(s.user)}/${Uri.encodeComponent(s.pass)}/';
+
   static String _api(Source s, [String action = '']) =>
       '${s.host}/player_api.php?username=${Uri.encodeQueryComponent(s.user)}'
       '&password=${Uri.encodeQueryComponent(s.pass)}${action.isEmpty ? '' : '&action=$action'}';
 
   /// Kontoinfo (Status, Ablaufdatum, Verbindungen). Wirft bei falschen Zugangsdaten.
-  static Future<Map<String, dynamic>> xtreamAccount(Source s) async {
-    final j = jsonDecode(await _get(_api(s)));
-    if (j is! Map || j['user_info'] == null || j['user_info']['auth'] == 0) {
+  static Future<Map<String, dynamic>> xtreamAccount(Source s) => withHttpFallback(s, () => _xtreamAccount(s));
+
+  static Future<Map<String, dynamic>> _xtreamAccount(Source s) async {
+    final j = _json(await _get(_api(s)));
+    if (j is! Map || j['user_info'] is! Map || '${j['user_info']['auth']}' == '0') {
       throw const FormatException('Login fehlgeschlagen');
     }
-    return Map<String, dynamic>.from(j['user_info']);
+    final info = Map<String, dynamic>.from(j['user_info']);
+    final status = '${info['status'] ?? ''}';
+    if (const {'expired', 'banned', 'disabled'}.contains(status.toLowerCase())) {
+      throw StateError(tr('Der Zugang ist nicht aktiv (Status: {0}). Beim Anbieter nachfragen.', [status]));
+    }
+    return info;
   }
 
   static Future<Map<Kind, List<MediaItem>>> _loadXtream(Source s) async {
-    final r = await Future.wait([
-      'get_live_categories', 'get_live_streams',
-      'get_vod_categories', 'get_vod_streams',
-      'get_series_categories', 'get_series',
-    ].map((a) => _get(_api(s, a)).catchError((_) => '[]')));
-    return compute(_buildXtream, (
-      r,
-      '${s.host}/live/${s.user}/${s.pass}/',
-      '${s.host}/movie/${s.user}/${s.pass}/',
-      store.liveFormat,
-    ));
+    // Je Art Kategorien + Liste gleichzeitig, Arten nacheinander: viele Server sperren bei zu vielen
+    // gleichzeitigen Anfragen (Flood-Schutz). Fehlschlag einmal wiederholen.
+    Future<String> get(String a) => _get(_api(s, a)).catchError(
+        (_) => Future.delayed(const Duration(seconds: 1), () => _get(_api(s, a))).catchError((_) => '[]'));
+    final r = <String>[];
+    for (final kind in ['live', 'vod', 'series']) {
+      r.addAll(await Future.wait([get('get_${kind}_categories'), get(kind == 'series' ? 'get_series' : 'get_${kind}_streams')]));
+    }
+    final items = await compute(_buildXtream, (r, _path(s, 'live'), _path(s, 'movie'), store.liveFormat));
+    if (items.values.every((l) => l.isEmpty)) throw const FormatException('Server liefert keine Inhalte');
+    return items;
   }
 
   static Future<List<Episode>> xtreamEpisodes(Source s, String seriesId) async {
-    final j = jsonDecode(await _get('${_api(s, 'get_series_info')}&series_id=$seriesId'));
+    final j = _json(await _get('${_api(s, 'get_series_info')}&series_id=$seriesId'));
     final eps = <Episode>[];
     final map = j['episodes'];
     final seasons = map is Map ? map.values : (map is List ? map : const []);
@@ -346,7 +399,7 @@ class Repo {
           season: int.tryParse('${e['season']}') ?? 1,
           number: int.tryParse('${e['episode_num']}') ?? 0,
           title: '${e['title'] ?? ''}',
-          url: '${s.host}/series/${s.user}/${s.pass}/${e['id']}.${e['container_extension'] ?? 'mp4'}',
+          url: '${_path(s, 'series')}${e['id']}.${e['container_extension'] ?? 'mp4'}',
           image: _str(info['movie_image']),
           plot: _str(info['plot']),
         ));
@@ -359,7 +412,7 @@ class Repo {
   /// Film- oder Serien-Details (Handlung, Genre, Besetzung, Backdrop).
   static Future<Map<String, dynamic>> xtreamInfo(Source s, MediaItem m) async {
     final q = m.kind == Kind.movie ? 'get_vod_info&vod_id=${m.id}' : 'get_series_info&series_id=${m.id}';
-    final j = jsonDecode(await _get(_api(s, q)));
+    final j = _json(await _get(_api(s, q)));
     return j is Map && j['info'] is Map ? Map<String, dynamic>.from(j['info']) : {};
   }
 
@@ -368,13 +421,13 @@ class Repo {
     String two(int v) => '$v'.padLeft(2, '0');
     final t = '${start.year}-${two(start.month)}-${two(start.day)}:${two(start.hour)}-${two(start.minute)}';
     final minutes = stop.difference(start).inMinutes.clamp(1, 24 * 60);
-    return '${s.host}/timeshift/${s.user}/${s.pass}/$minutes/$t/${ch.id}.ts';
+    return '${_path(s, 'timeshift')}$minutes/$t/${ch.id}.ts';
   }
 
   /// Aktuelle + nächste Sendung (EPG) für einen Live-Sender.
   static Future<List<({String title, DateTime start, DateTime end})>> xtreamEpg(
       Source s, String streamId) async {
-    final j = jsonDecode(await _get('${_api(s, 'get_short_epg')}&stream_id=$streamId&limit=3'));
+    final j = _json(await _get('${_api(s, 'get_short_epg')}&stream_id=$streamId&limit=3'));
     String b64(dynamic v) {
       try {
         return utf8.decode(base64.decode('$v'));
@@ -392,6 +445,12 @@ class Repo {
 }
 
 String? _str(dynamic v) => v == null || '$v'.isEmpty ? null : '$v';
+
+/// JSON auch mit BOM oder PHP-Warnungen davor („<br /><b>Warning</b> … {…}“).
+dynamic _json(String text) {
+  final i = text.indexOf(RegExp(r'[\[{]'));
+  return jsonDecode(i <= 0 ? text : text.substring(i));
+}
 
 Map<Kind, List<MediaItem>> _parseM3u((String, bool) a) => parseM3u(a.$1, liveOnly: a.$2);
 
@@ -413,8 +472,9 @@ Map<Kind, List<MediaItem>> _buildXtream((List<String>, String, String, String) a
   final (r, livePrefix, moviePrefix, liveExt) = a;
   List list(String s) {
     try {
-      final j = jsonDecode(s);
-      return j is List ? j : const [];
+      final j = _json(s);
+      // Manche Panels liefern {"1": {…}, "2": {…}} statt einer Liste
+      return j is List ? j : (j is Map ? j.values.whereType<Map>().toList() : const []);
     } catch (_) {
       return const [];
     }

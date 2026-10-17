@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../epg.dart';
 import '../i18n.dart';
+import '../errors.dart';
 import '../models.dart';
 import '../repo.dart';
 import '../store.dart';
@@ -69,7 +70,7 @@ class _GuideViewState extends State<GuideView> {
             return Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(epg.errors[widget.source.id] != null
-                    ? tr('Programmführer konnte nicht geladen werden: {0}', [epg.errors[widget.source.id]])
+                    ? tr('Programmführer konnte nicht geladen werden: {0}', [explain(epg.errors[widget.source.id]!)])
                     : tr('Keine Programmdaten für diese Sender'),
                     textAlign: TextAlign.center, style: const TextStyle(color: textDim)),
                 const SizedBox(height: 16),

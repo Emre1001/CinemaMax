@@ -22,6 +22,10 @@ Future<void> main() async {
     await e.selectQuality(q.last.id);
     await Future.delayed(const Duration(seconds: 6));
     stdout.writeln('AFTER ${q.last.label} size=${e.state.value.size.height}');
+    // Daten sparen: höchstens 480p
+    stdout.writeln('CAP ${await e.capQuality(480)}');
+    await Future.delayed(const Duration(seconds: 6));
+    stdout.writeln('CAPPED size=${e.state.value.size.height}');
   }
   exit(0);
 }

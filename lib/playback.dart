@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 
 import 'i18n.dart';
 import 'store.dart';
+import 'ui/common.dart' show isAndroidTv;
 
 class PlaybackState {
   final Duration position, duration, buffered;
@@ -35,11 +36,11 @@ abstract class Engine {
   VoidCallback? onCompleted;
   String? audioId, subtitleId;
 
-  /// Android: ExoPlayer, außer der Nutzer wählt mpv. PC: immer mpv.
-  static Engine create([String url = '']) {
+  /// Android: ExoPlayer, außer der Nutzer wählt mpv ([engine] überschreibt die Einstellung). PC: immer mpv.
+  static Engine create([String url = '', String? engine]) {
     // rtmp/udp/mms kann ExoPlayer nicht: dafür immer mpv
     final exotic = RegExp(r'^(rtmp|rtmps|udp|rtp|mms|mmsh|srt)://', caseSensitive: false).hasMatch(url);
-    return Platform.isAndroid && store.get('engine', 'exo') == 'exo' && !exotic ? ExoEngine() : MpvEngine();
+    return Platform.isAndroid && (engine ?? store.get('engine', 'exo')) == 'exo' && !exotic ? ExoEngine() : MpvEngine();
   }
 
   /// Kodi-Schreibweise "url|User-Agent=x&Referer=y": Header abtrennen.
@@ -72,9 +73,38 @@ abstract class Engine {
   Future<void> selectQuality(String? id) async => qualityId = id;
   String? qualityId;
 
-  /// "1080p · 5.2 Mbit/s" aus Höhe und Bitrate.
-  static String qualityLabel(int? height, int? bitrate) => [
-        if (height != null && height > 0) height >= 2000 ? '4K' : '${height}p',
+  /// Bildhöhe je Qualität (von [qualities] gefüllt), für die Datenspar-Grenze.
+  final qualityHeight = <String, int>{};
+
+  /// Beste Qualität bis [maxHeight] wählen (Daten sparen). false = Stream hat keine Stufen.
+  Future<String?> capQuality(int maxHeight) async {
+    final list = await qualities();
+    if (list.isEmpty) return null;
+    for (final q in list) {
+      if ((qualityHeight[q.id] ?? 0) <= maxHeight) {
+        await selectQuality(q.id);
+        return q.label;
+      }
+    }
+    // Alles höher als erlaubt: kleinste Stufe
+    await selectQuality(list.last.id);
+    return list.last.label;
+  }
+
+  /// "4K", "1080p" aus der Bildgröße. Kinofilme in 4K sind oft 3840×1600: daher auch die Breite prüfen.
+  static String? resolution(int? width, int? height) {
+    final w = width ?? 0, h = height ?? 0;
+    if (w <= 0 && h <= 0) return null;
+    if (w >= 3200 || h >= 2000) return '4K';
+    if (w >= 2400 || h >= 1400) return '1440p';
+    if (w >= 1800 || h >= 1000) return '1080p';
+    if (w >= 1200 || h >= 700) return '720p';
+    return '${h}p';
+  }
+
+  /// "1080p · 5.2 Mbit/s" aus Bildgröße und Bitrate.
+  static String qualityLabel(int? width, int? height, int? bitrate) => [
+        ?resolution(width, height),
         if (bitrate != null && bitrate > 0) '${(bitrate / 1e6).toStringAsFixed(1)} Mbit/s',
       ].join(' · ');
 
@@ -103,6 +133,7 @@ class ExoEngine extends Engine {
 
   VideoPlayerController? get _c => _ctrl.value;
   int _gen = 0;
+  bool _disposed = false;
 
   /// Reihenfolge der Versuche: wie angegeben, ohne Endung zusätzlich als HLS,
   /// bei Xtream-Live das jeweils andere Format (.ts / .m3u8).
@@ -115,6 +146,8 @@ class ExoEngine extends Engine {
       if (hint == null) (url, VideoFormat.hls),
       if (path.contains('/live/') && path.endsWith('.ts')) (url.replaceFirst(RegExp(r'\.ts(?=$|\?)'), '.m3u8'), VideoFormat.hls),
       if (path.contains('/live/') && path.endsWith('.m3u8')) (url.replaceFirst(RegExp(r'\.m3u8(?=$|\?)'), '.ts'), null),
+      // https-Link auf einen Server, der nur http spricht
+      if (url.toLowerCase().startsWith('https://')) ('http://${url.substring(8)}', hint),
     ];
   }
 
@@ -126,9 +159,30 @@ class ExoEngine extends Engine {
     return t.length > 160 ? '${t.substring(0, 160)} …' : t;
   }
 
+  // Adaptive Streams wechseln die Auflösung, video_player meldet nur die erste: laufende Spur nachfragen
+  Size? _playingSize;
+  DateTime _sizeCheck = DateTime(0);
+
+  Future<void> _checkSize(VideoPlayerController c) async {
+    try {
+      if (!c.isVideoTrackSupportAvailable()) return;
+      final t = (await c.getVideoTracks()).where((t) => t.isSelected && (t.width ?? 0) > 0).toList();
+      if (t.length != 1 || c != _c) return;
+      final size = Size(t.single.width!.toDouble(), t.single.height!.toDouble());
+      if (size == _playingSize) return;
+      _playingSize = size;
+      _sync();
+    } catch (_) {/* Spuren gerade nicht abrufbar */}
+  }
+
   void _sync() {
-    final v = _c?.value;
-    if (v == null) return;
+    final c = _c;
+    final v = c?.value;
+    if (c == null || v == null) return;
+    if (v.isPlaying && DateTime.now().difference(_sizeCheck) > const Duration(seconds: 3)) {
+      _sizeCheck = DateTime.now();
+      _checkSize(c);
+    }
     final err = v.hasError ? v.errorDescription : null;
     state.value = PlaybackState(
       position: v.position,
@@ -138,7 +192,7 @@ class ExoEngine extends Engine {
       buffering: v.isBuffering || !v.isInitialized,
       ready: v.isInitialized,
       error: err,
-      size: v.size,
+      size: _playingSize ?? v.size,
     );
     if (v.isCompleted && !_completedSent) {
       _completedSent = true;
@@ -163,12 +217,14 @@ class ExoEngine extends Engine {
     await old?.dispose();
     state.value = const PlaybackState();
     _completedSent = false;
+    _playingSize = null;
     qualityId = null;
 
     final gen = ++_gen;
     String? lastError;
     Future<VideoPlayerController?> tryOpen(String u, VideoFormat? hint) async {
-      final view = store.get('surfaceView', false) ? VideoViewType.platformView : VideoViewType.textureView;
+      // Fernseher: SurfaceView zeigt 4K in voller Auflösung und HDR mit richtigen Farben
+      final view = store.get('surfaceView', isAndroidTv) ? VideoViewType.platformView : VideoViewType.textureView;
       // Heruntergeladene Datei oder Netzwerk-Stream
       final c = u.startsWith('/')
           ? VideoPlayerController.file(File(u), viewType: view)
@@ -191,7 +247,7 @@ class ExoEngine extends Engine {
     for (final (u, hint) in _candidates(url)) {
       c = await tryOpen(u, hint);
       // Inzwischen weitergezappt: Ergebnis verwerfen
-      if (gen != _gen) {
+      if (gen != _gen || _disposed) {
         await c?.dispose();
         return;
       }
@@ -253,10 +309,13 @@ class ExoEngine extends Engine {
     if (c == null || !c.isVideoTrackSupportAvailable()) return [];
     _videoTracks.clear();
     final out = <Track>[];
-    for (final t in (await c.getVideoTracks())..sort((a, b) => (b.height ?? 0).compareTo(a.height ?? 0))) {
-      final label = Engine.qualityLabel(t.height, t.bitrate);
+    for (final t in (await c.getVideoTracks())
+      ..sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))) {
+      final label = Engine.qualityLabel(t.width, t.height, t.bitrate);
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
       _videoTracks[t.id] = t;
+      // Kinoformat (1920×800) zählt wie 1080p: Höhe aus der Breite ableiten
+      qualityHeight[t.id] = (t.height ?? 0) > (t.width ?? 0) * 9 ~/ 16 ? t.height ?? 0 : (t.width ?? 0) * 9 ~/ 16;
       out.add((id: t.id, label: label));
     }
     return out.length > 1 ? out : [];
@@ -283,15 +342,19 @@ class ExoEngine extends Engine {
             valueListenable: c,
             builder: (_, v, _) {
               if (!v.isInitialized || v.size.isEmpty) return const ColoredBox(color: Colors.black);
+              // Größe per Layout statt Skalierung: eine SurfaceView (Fernseher) kennt keine Transformationen
               return ColoredBox(
                 color: Colors.black,
-                child: SizedBox.expand(
-                  child: FittedBox(
-                    fit: fit,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(width: v.size.width, height: v.size.height, child: VideoPlayer(c)),
-                  ),
-                ),
+                child: LayoutBuilder(builder: (_, box) {
+                  final dest = applyBoxFit(fit, v.size, box.biggest).destination;
+                  return ClipRect(
+                    child: OverflowBox(
+                      maxWidth: dest.width,
+                      maxHeight: dest.height,
+                      child: SizedBox(width: dest.width, height: dest.height, child: VideoPlayer(c)),
+                    ),
+                  );
+                }),
               );
             },
           );
@@ -300,6 +363,9 @@ class ExoEngine extends Engine {
 
   @override
   Future<void> dispose() async {
+    // Noch ladende Streams verwerfen: sonst läuft der Ton nach dem Verlassen weiter
+    _disposed = true;
+    _gen++;
     final c = _c;
     _ctrl.value = null;
     c?.removeListener(_sync);
@@ -337,7 +403,11 @@ class MpvEngine extends Engine {
     }
 
     _subs.addAll([
-      _p.stream.position.listen((_) => up()),
+      // mpv meldet „playing“ schon vor dem Laden: erst laufende Zeit oder Bild heißt bereit (auch Radio)
+      _p.stream.position.listen((p) {
+        if (p > Duration.zero) _ready = true;
+        up();
+      }),
       _p.stream.playing.listen((_) => up()),
       _p.stream.buffering.listen((_) => up()),
       _p.stream.duration.listen((_) => up()),
@@ -371,9 +441,21 @@ class MpvEngine extends Engine {
     if (store.get('normalize', false)) await set('af', 'lavfi=[dynaudnorm=f=150:g=15]');
   }
 
+  // Linux: die GPU-Ausgabe entsteht erst beim ersten Zeichnen der Textur. Vorher geöffnete Streams finden
+  // keine Videoausgabe und hängen bei 0:00 (schnelle Server, Downloads): erst ein paar Bilder zeichnen lassen.
+  late final Future<void> _outputReady = () async {
+    if (!Platform.isLinux) return;
+    await _video.platform.future;
+    for (var i = 0; i < 3; i++) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    await Future.delayed(const Duration(milliseconds: 150));
+  }();
+
   @override
   Future<void> open(String url, Map<String, String> headers, {Duration? start}) async {
     await _configure();
+    await _outputReady;
     _ready = false;
     qualityId = null;
     state.value = const PlaybackState();
@@ -467,10 +549,11 @@ class MpvEngine extends Engine {
   Future<List<Track>> qualities() async {
     final out = <Track>[];
     final tracks = [..._p.state.tracks.video.where((t) => t.id != 'auto' && t.id != 'no')]
-      ..sort((a, b) => (b.h ?? 0).compareTo(a.h ?? 0));
+      ..sort((a, b) => (b.w ?? 0) * (b.h ?? 0) - (a.w ?? 0) * (a.h ?? 0));
     for (final t in tracks) {
-      final label = Engine.qualityLabel(t.h, t.bitrate);
+      final label = Engine.qualityLabel(t.w, t.h, t.bitrate);
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
+      qualityHeight[t.id] = (t.h ?? 0) > (t.w ?? 0) * 9 ~/ 16 ? t.h ?? 0 : (t.w ?? 0) * 9 ~/ 16;
       out.add((id: t.id, label: label));
     }
     return out.length > 1 ? out : [];

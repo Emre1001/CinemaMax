@@ -215,9 +215,16 @@ class Pill extends StatelessWidget {
   final VoidCallback? onTap;
   final bool autofocus;
   final bool primary;
+  final FocusNode? focusNode;
 
   const Pill(this.label,
-      {super.key, this.icon, this.selected = false, this.onTap, this.autofocus = false, this.primary = false});
+      {super.key,
+      this.icon,
+      this.selected = false,
+      this.onTap,
+      this.autofocus = false,
+      this.primary = false,
+      this.focusNode});
 
   @override
   Widget build(BuildContext context) {
@@ -226,6 +233,7 @@ class Pill extends StatelessWidget {
     return Tap(
       onTap: onTap,
       autofocus: autofocus,
+      focusNode: focusNode,
       radius: 100,
       scale: 1.06,
       child: AnimatedContainer(
@@ -335,14 +343,14 @@ class InputBox extends StatelessWidget {
         title: Text(decoration.labelText ?? decoration.hintText ?? ''),
         content: SizedBox(
           width: 520,
-          child: TextField(
+          child: dpadField(TextField(
             controller: c,
             autofocus: true,
             obscureText: secret,
             keyboardType: keyboardType,
             autocorrect: false,
             onSubmitted: (v) => Navigator.pop(d, v),
-          ),
+          )),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d), child: Text(tr('Abbrechen'))),

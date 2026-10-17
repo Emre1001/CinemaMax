@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../i18n.dart';
+import '../errors.dart';
 import '../downloads.dart';
 import '../epg.dart';
 import '../models.dart';
@@ -181,7 +182,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   const SizedBox(height: 6),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Text('$_error', textAlign: TextAlign.center, style: const TextStyle(color: textDim)),
+                    child: Text(explain(_error!), textAlign: TextAlign.center, style: const TextStyle(color: textDim)),
                   ),
                   const SizedBox(height: 22),
                   Row(mainAxisSize: MainAxisSize.min, children: [
@@ -451,7 +452,7 @@ class _ContentViewState extends State<ContentView> {
     }).catchError((Object e) {
       if (!mounted) return;
       setState(() => _lazyItems[g] = const []);
-      toast(context, tr('Kategorie konnte nicht geladen werden: {0}', [e]));
+      toast(context, tr('Kategorie konnte nicht geladen werden: {0}', [explain(e)]));
     });
   }
 

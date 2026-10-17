@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart' show defaultEnterNativeFullscreen, defaultExitNativeFullscreen;
@@ -9,6 +10,7 @@ import 'package:media_kit_video/media_kit_video.dart' show defaultEnterNativeFul
 import '../downloads.dart';
 import '../epg.dart';
 import '../i18n.dart';
+import '../errors.dart';
 import '../models.dart';
 import '../playback.dart';
 import '../repo.dart';
@@ -37,7 +39,9 @@ Future<void> resumeFromHistory(BuildContext c, Source s, String url, String titl
     try {
       final all = episodeList(item, await Repo.episodes(s, item).timeout(const Duration(seconds: 15)));
       if (all.any((p) => p.url == url)) list = all;
-    } catch (_) {/* offline oder Server weg: nur diese Folge */}
+    } catch (_) {
+      /* offline oder Server weg: nur diese Folge */
+    }
   }
   if (!c.mounted) return;
   await PlayerScreen.open(c, s, list, list.indexWhere((p) => p.url == url).clamp(0, list.length - 1));
@@ -54,6 +58,7 @@ class PlayerScreen extends StatefulWidget {
   final List<PlayItem> list;
   final int index;
   final bool fromStart;
+  final String? engine; // 'exo'/'mpv' nur für diese Wiedergabe, null = Einstellung
 
   const PlayerScreen({
     super.key,
@@ -61,6 +66,7 @@ class PlayerScreen extends StatefulWidget {
     required this.list,
     required this.index,
     this.fromStart = false,
+    this.engine,
   });
 
   /// Routenname, damit externe Links einen laufenden Player ersetzen können.
@@ -80,9 +86,15 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  late final Engine _e = Engine.create(widget.list[widget.index].url);
+  late final Engine _e = Engine.create(widget.list[widget.index].url, widget.engine);
+  bool _leaving = false;
   final _root = FocusNode(debugLabel: 'player');
   final _playBtn = FocusNode(debugLabel: 'play');
+  final _errorBtn = FocusNode(debugLabel: 'retry');
+  final _stillBtn = FocusNode(debugLabel: 'still');
+  bool _everPlayed = false; // Stream lief schon: Fehler sind Abbrüche, kein Format-Problem
+  bool _failed = false; // Fehlermeldung sichtbar (nicht während automatischem Neuverbinden)
+  int _repeat = 0; // gehaltene Taste: Spulen beschleunigen
   late int _i = widget.index;
   late BoxFit _fit = fits[store.get('fit', 'contain')]!.$2;
   bool _controls = true, _fullscreen = false, _first = true, _muted = false, _locked = false;
@@ -108,7 +120,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   PlayItem get _cur => widget.list[_i];
   bool get _hasNext => !_cur.live && _i < widget.list.length - 1;
   bool get _tv => formFactor(context) == Ff.tv;
-  bool get _desktop => Platform.isLinux || Platform.isWindows;
+  // PC am Fernseher (Layout „Fernseher“) bekommt die Fernbedienungs-Oberfläche
+  bool get _desktop => (Platform.isLinux || Platform.isWindows) && !_tv;
   int get _step => store.get('seekStep', 10);
   int get _introSkip => store.get('introSkip', 85);
 
@@ -123,14 +136,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return ((window - left) / countdown).clamp(0.0, 1.0);
   }
 
-  /// Knopf „Intro überspringen“ in den ersten Minuten einer Folge.
-  bool _introVisible(PlaybackState s) =>
+  /// Knopf „Intro überspringen“ möglich: in den ersten Minuten einer Folge, vor dem Sprungziel.
+  bool _introEligible(PlaybackState s) =>
       _introSkip > 0 &&
       !_introDone &&
       _cur.item.kind == Kind.series &&
       s.duration > const Duration(minutes: 10) &&
       s.position > const Duration(seconds: 3) &&
-      s.position < const Duration(minutes: 3);
+      s.position < const Duration(minutes: 3) &&
+      s.position < Duration(seconds: _introSkip);
+
+  Duration? _introFrom; // Position, ab der der Knopf sichtbar ist
+  static const _introWindow = Duration(seconds: 10);
+
+  /// Countdown des Knopfs 0..1; nach 10 s Wiedergabe verschwindet er von selbst. null = nicht sichtbar.
+  double? _introProgress(PlaybackState s) {
+    final from = _introFrom;
+    if (from == null || !_introEligible(s)) return null;
+    final t = (s.position - from).inMilliseconds / _introWindow.inMilliseconds;
+    return t < 0 || t >= 1 ? null : t;
+  }
+
+  bool _introVisible(PlaybackState s) => _introProgress(s) != null;
 
   @override
   void initState() {
@@ -149,6 +176,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
     if (_desktop && store.get('autoFullscreen', false)) _toggleFullscreen();
+    _volume = store.get('volume', 1.0).clamp(0.0, _e.maxVolume).toDouble();
+    // Fernbedienung: Fokus gleich auf Play/Pause, sonst führt kein Pfeil in die Bedienleiste
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _controls && _playBtn.context != null) _playBtn.requestFocus();
+    });
     _play(_i);
   }
 
@@ -163,6 +195,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _e.dispose();
     _root.dispose();
     _playBtn.dispose();
+    _errorBtn.dispose();
+    _stillBtn.dispose();
+    store.set('volume', _volume);
     if (_phone) _device.invokeMethod('autoPip', false).catchError((_) {});
     if (Platform.isAndroid) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -174,7 +209,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onState() {
     final s = _e.state.value;
-    if (s.playing) _retries = 0;
+    if (s.playing && s.ready) {
+      _retries = 0;
+      _everPlayed = true;
+    }
+    // Fehlerknöpfe per Fernbedienung erreichbar machen
+    if (s.error != null && _root.hasPrimaryFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _errorBtn.context != null) _errorBtn.requestFocus();
+      });
+    }
+    // Ein Player kann den Stream gar nicht öffnen (z. B. 4K-HEVC, 10 Bit, DTS): einmal den anderen versuchen
+    // (Android: ExoPlayer und mpv). Abbrüche eines laufenden Streams regelt das automatische Neuverbinden.
+    final other = _e is ExoEngine ? 'mpv' : 'exo';
+    if (s.error != null &&
+        !_everPlayed &&
+        Platform.isAndroid &&
+        widget.engine == null &&
+        !_leaving &&
+        store.get('autoMpv', true) &&
+        !(other == 'exo' && _exotic(_cur.url))) {
+      _leaving = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        toast(context, tr('{0} kann diesen Stream nicht abspielen, versuche {1} …',
+            [_e is ExoEngine ? 'ExoPlayer' : 'mpv', other == 'exo' ? 'ExoPlayer' : 'mpv']));
+        _replace(other);
+      });
+      return;
+    }
     // Live-Streams brechen oft kurz ab: automatisch neu verbinden
     if (s.error != null &&
         _cur.live &&
@@ -184,6 +247,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _retries++;
       _retryTimer = Timer(Duration(seconds: 1 + _retries), () => _play(_i, retry: true));
     }
+    // Fehler liegt über allem; Bedienleiste darunter nicht per Fernbedienung erreichbar
+    final failed = s.error != null && _retryTimer?.isActive != true;
+    if (failed != _failed && mounted) setState(() => _failed = failed);
+    if (_introFrom == null && _introEligible(s)) _introFrom = s.position;
     // Countdown abgelaufen: nächste Folge
     if (!_advancing && (_nextProgress(s) ?? 0) >= 1) {
       _advancing = true;
@@ -217,9 +284,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _i = i;
       if (!retry) {
+        _everPlayed = false;
         _epg = [];
         _nextDismissed = false;
         _introDone = false;
+        _introFrom = null;
         // „Ende dieser Folge“ gilt nur für die Folge, bei der er gestellt wurde
         if (_stopAtEnd) {
           _stopAtEnd = false;
@@ -251,6 +320,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _e.open(cleanUrl, headers, start: start);
     if (!mounted || id != _openId) return;
     _advancing = false;
+    _capQuality(id);
     final rate = store.get('defaultRate', 1.0);
     if (!item.live && rate != 1.0) _e.setRate(rate);
     if (_muted || _volume != 1) _e.setVolume(_muted ? 0 : _volume);
@@ -258,6 +328,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!item.live && _autoChain >= 3 && store.get('stillWatching', true)) {
       _e.pause();
       setState(() => _askStill = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _stillBtn.context != null) _stillBtn.requestFocus();
+      });
     }
     if (item.live && widget.source.type == SourceType.xtream && !retry) {
       Repo.xtreamEpg(widget.source, item.item.id)
@@ -265,6 +338,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (mounted && id == _openId) setState(() => _epg = e);
           })
           .catchError((_) {});
+    }
+  }
+
+  /// Daten sparen: höchstens die eingestellte Auflösung. Spuren sind erst kurz nach dem Start bekannt.
+  Future<void> _capQuality(int id) async {
+    final max = store.get('maxRes', 0);
+    if (max <= 0) return;
+    for (final wait in const [700, 2000, 4000]) {
+      await Future.delayed(Duration(milliseconds: wait));
+      if (!mounted || id != _openId || _e.qualityId != null) return;
+      final label = await _e.capQuality(max);
+      if (label != null) {
+        if (mounted) _flash(tr('Daten sparen: {0}', [label]));
+        return;
+      }
     }
   }
 
@@ -393,6 +481,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _show();
   }
 
+  static final _navKeys = {
+    LogicalKeyboardKey.arrowUp,
+    LogicalKeyboardKey.arrowDown,
+    LogicalKeyboardKey.arrowLeft,
+    LogicalKeyboardKey.arrowRight,
+    LogicalKeyboardKey.select,
+    LogicalKeyboardKey.enter,
+    LogicalKeyboardKey.numpadEnter,
+    LogicalKeyboardKey.gameButtonA,
+  };
+
   static final _digitKeys = {
     for (var d = 0; d <= 9; d++) ...{
       LogicalKeyboardKey(LogicalKeyboardKey.digit0.keyId + d): d,
@@ -403,9 +502,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
   KeyEventResult _key(FocusNode _, KeyEvent e) {
     if (e is KeyUpEvent) return KeyEventResult.ignored;
     final k = e.logicalKey;
+    final nav = _navKeys.contains(k);
     // „Schaust du noch?“: Tasten gehören den Knöpfen
-    if (_askStill) return KeyEventResult.ignored;
+    if (_askStill) {
+      if (nav && _root.hasPrimaryFocus) {
+        _stillBtn.requestFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
     _autoChain = 0;
+    // Fernbedienung: Bedienleiste oder Fehler sichtbar, aber nichts fokussiert: erst in die Knöpfe springen
+    if (nav && !_desktop && _root.hasPrimaryFocus) {
+      final target = _e.state.value.error != null ? _errorBtn : (_controls ? _playBtn : null);
+      if (target?.context != null) {
+        target!.requestFocus();
+        _show();
+        return KeyEventResult.handled;
+      }
+    }
+    // Gehaltene Taste: Spulschritt wächst (bis 6x)
+    _repeat = e is KeyRepeatEvent ? _repeat + 1 : 0;
+    final step = _step * (1 + _repeat ~/ 4).clamp(1, 6);
     // Medientasten und Ziffern funktionieren immer
     if (_cur.live && widget.list.length > 1 && _digitKeys.containsKey(k)) {
       _digit(_digitKeys[k]!);
@@ -424,10 +542,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _show();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.mediaFastForward:
-        _seek(_step * 3);
+        _seek(step * 3);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.mediaRewind:
-        _seek(-_step * 3);
+        _seek(-step * 3);
+        return KeyEventResult.handled;
+      // Fernbedienungs-Tasten
+      case LogicalKeyboardKey.mediaStop || LogicalKeyboardKey.exit:
+        Navigator.maybePop(context);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.info:
+        _info();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.guide || LogicalKeyboardKey.tv:
+        _cur.live ? _channelList() : _episodes();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.closedCaptionToggle ||
+          LogicalKeyboardKey.subtitle ||
+          LogicalKeyboardKey.mediaAudioTrack ||
+          LogicalKeyboardKey.colorF1Green:
+        _audioSubs();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.colorF0Red when widget.source.id != 'link':
+        toggleFav(context, widget.source, _cur.item);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.colorF2Yellow:
+        _qualityMenu();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.colorF3Blue || LogicalKeyboardKey.settings || LogicalKeyboardKey.mediaTopMenu:
+        _morePanel();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.mediaLast when _cur.live && _lastIndex != null:
+        _play(_lastIndex!);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.channelUp || LogicalKeyboardKey.pageUp || LogicalKeyboardKey.mediaTrackNext:
         _cur.live ? _zap(1) : _next();
@@ -450,19 +596,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
       case LogicalKeyboardKey.keyS when _introVisible(_e.state.value):
         _skipIntro();
         return KeyEventResult.handled;
-      case LogicalKeyboardKey.space when _desktop:
+      case LogicalKeyboardKey.space || LogicalKeyboardKey.keyK when _desktop:
         _e.playOrPause();
         _show();
         return KeyEventResult.handled;
     }
-    // PC: Pfeile spulen und regeln die Lautstärke immer (wie im Browser-Player)
+    // PC: Pfeile spulen und regeln die Lautstärke immer (wie im Browser-Player), dazu YouTube-Tasten
     if (_desktop) {
+      if (!_cur.live && _digitKeys.containsKey(k)) {
+        // 0–9: zu 0 %, 10 % … 90 % springen
+        final d = _e.state.value.duration;
+        _e.seek(d * (_digitKeys[k]! / 10));
+        _show();
+        return KeyEventResult.handled;
+      }
       switch (k) {
-        case LogicalKeyboardKey.arrowLeft when !_cur.live:
-          _seek(-_step);
+        case LogicalKeyboardKey.arrowLeft || LogicalKeyboardKey.keyJ when !_cur.live:
+          _seek(k == LogicalKeyboardKey.keyJ ? -10 : -step);
           return KeyEventResult.handled;
-        case LogicalKeyboardKey.arrowRight when !_cur.live:
-          _seek(_step);
+        case LogicalKeyboardKey.arrowRight || LogicalKeyboardKey.keyL when !_cur.live:
+          _seek(k == LogicalKeyboardKey.keyL ? 10 : step);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.home when !_cur.live:
+          _e.seek(Duration.zero);
+          _show();
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.bracketLeft || LogicalKeyboardKey.bracketRight when !_cur.live:
+          final r = (_e.rate + (k == LogicalKeyboardKey.bracketRight ? .25 : -.25)).clamp(.25, 3.0);
+          _e.setRate(r);
+          _flash('${r}x');
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.keyC:
+          _audioSubs();
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.keyI:
+          _info();
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.escape when !_fullscreen:
+          Navigator.maybePop(context);
           return KeyEventResult.handled;
         case LogicalKeyboardKey.arrowUp when !_cur.live:
           _setVolume(_volume + .1);
@@ -482,9 +653,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       case LogicalKeyboardKey.arrowDown:
         _cur.live ? _zap(1) : _show();
       case LogicalKeyboardKey.arrowLeft:
-        _cur.live ? _channelList() : _seek(-_step);
+        _cur.live ? _channelList() : _seek(-step);
       case LogicalKeyboardKey.arrowRight:
-        _cur.live ? _show() : _seek(_step);
+        _cur.live ? _show() : _seek(step);
       case LogicalKeyboardKey.select || LogicalKeyboardKey.enter || LogicalKeyboardKey.gameButtonA:
         // OK: im Abspann zur nächsten Folge, am Anfang Intro überspringen
         final s = _e.state.value;
@@ -565,10 +736,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          SizedBox(
-            width: 30,
-            child: selected ? Icon(Icons.check_rounded, size: 20, color: store.accent) : null,
-          ),
+          SizedBox(width: 30, child: selected ? Icon(Icons.check_rounded, size: 20, color: store.accent) : null),
           Expanded(
             child: Text(
               label,
@@ -594,21 +762,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _section(tr('Tonspur')),
           if (audio.isEmpty) _option(tr('Standard'), true, () {}, autofocus: true),
           for (final (i, t) in audio.indexed)
-            _option(
-              t.label,
-              t.id == _e.audioId || (_e.audioId == null && i == 0),
-              () async {
-                await _e.selectAudio(t.id);
-                setPanel(() {});
-              },
-              autofocus: t.id == _e.audioId || (_e.audioId == null && i == 0),
-            ),
+            _option(t.label, t.id == _e.audioId || (_e.audioId == null && i == 0), () async {
+              await _e.selectAudio(t.id);
+              setPanel(() {});
+            }, autofocus: t.id == _e.audioId || (_e.audioId == null && i == 0)),
           _section(tr('Untertitel')),
           if (subs.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               child: Text(
-                _e is ExoEngine ? tr('Untertitel: in den Einstellungen Player „mpv“ wählen') : tr('Keine Untertitel vorhanden'),
+                _e is ExoEngine
+                    ? tr('Untertitel: in den Einstellungen Player „mpv“ wählen')
+                    : tr('Keine Untertitel vorhanden'),
                 style: const TextStyle(color: textDim),
               ),
             ),
@@ -652,7 +817,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
             Padding(
               padding: const EdgeInsets.all(14),
               child: Text(
-                tr('Der Stream bietet nur eine Qualität an.'),
+                // Echte Auflösung zeigen: IPTV-Sender und Filme kommen meist nur in einer Qualität
+                _quality(size) == null
+                    ? tr('Der Stream bietet nur eine Qualität an.')
+                    : tr(
+                        'Der Anbieter sendet diesen Stream nur in {0} ({1} × {2}). Andere Auflösungen gibt es nur, wenn der Anbieter sie mitliefert, z. B. als eigener 4K-/UHD-Sender.',
+                        [_quality(size), size.width.round(), size.height.round()],
+                      ),
                 style: const TextStyle(color: textDim),
               ),
             ),
@@ -724,7 +895,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
             children: [
               SizedBox(
                 width: 36,
-                child: Text('${j + 1}', textAlign: TextAlign.right, style: const TextStyle(color: textDim)),
+                child: Text(
+                  '${j + 1}',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: textDim),
+                ),
               ),
               const SizedBox(width: 12),
               SizedBox(
@@ -824,7 +999,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   fit: StackFit.expand,
                   children: [
                     Artwork(ep?.image ?? p.item.logo, p.title, width: 128),
-                    if (current) const ColoredBox(color: Colors.black45, child: Icon(Icons.equalizer_rounded, size: 30)),
+                    if (current)
+                      const ColoredBox(color: Colors.black45, child: Icon(Icons.equalizer_rounded, size: 30)),
                     if (progress > 0)
                       Align(
                         alignment: Alignment.bottomLeft,
@@ -877,7 +1053,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ('M', tr('Ton aus/an')),
       ('N', tr('Nächste Folge')),
       ('S', tr('Intro überspringen')),
-      ('0–9', tr('Sendernummer (Live)')),
+      ('J · K · L', tr('10 s zurück · Pause · 10 s vor')),
+      ('0–9', tr('Sprung zu 0–90 % (Film) · Sendernummer (Live)')),
+      ('[ ]', tr('Tempo langsamer / schneller')),
+      ('C · I', tr('Ton & Untertitel · Info')),
+      (tr('Mausrad'), tr('Lautstärke')),
+      (tr('Rechtsklick'), tr('Mehr')),
+      ('Esc', tr('Vollbild beenden · Zurück')),
     ];
     await showDialog(
       context: context,
@@ -897,7 +1079,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         width: 110,
                         child: Text(k, style: const TextStyle(fontWeight: FontWeight.w800)),
                       ),
-                      Expanded(child: Text(v, style: const TextStyle(color: textDim))),
+                      Expanded(
+                        child: Text(v, style: const TextStyle(color: textDim)),
+                      ),
                     ],
                   ),
                 ),
@@ -922,7 +1106,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final pip = _pip(context);
 
     return PopScope(
-      canPop: !_controls || !_tv,
+      canPop: !_controls || !_tv || _failed,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _hide();
       },
@@ -935,139 +1119,167 @@ class _PlayerScreenState extends State<PlayerScreen> {
           child: MouseRegion(
             onHover: (_) => _show(),
             cursor: _controls ? SystemMouseCursors.basic : SystemMouseCursors.none,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => _controls ? _hide() : _show(),
-              // Handy: waagerecht wischen spult, rechts senkrecht wischen ändert die Lautstärke
-              onHorizontalDragUpdate: _phone && !_locked && !_cur.live
-                  ? (d) {
-                      _dragSeek = (_dragSeek ?? 0) + d.delta.dx / MediaQuery.sizeOf(context).width * 180;
-                      final target = _e.state.value.position + Duration(seconds: _dragSeek!.round());
-                      _flash(
-                        '${_dragSeek! >= 0 ? '+' : '−'}${fmtDuration(Duration(seconds: _dragSeek!.abs().round()))}  ·  ${fmtDuration(target < Duration.zero ? Duration.zero : target)}',
-                      );
-                    }
-                  : null,
-              onHorizontalDragEnd: _phone && !_locked && !_cur.live
-                  ? (_) {
-                      if (_dragSeek != null) _seek(_dragSeek!.round());
-                      _dragSeek = null;
-                    }
-                  : null,
-              onVerticalDragUpdate: _phone && !_locked
-                  ? (d) {
-                      if (d.localPosition.dx > MediaQuery.sizeOf(context).width / 2) {
-                        _setVolume(_volume - d.delta.dy / 300);
-                      } else if (_cur.live && _dragZap != null) {
-                        // Links wischen: ein Senderwechsel pro Geste
-                        _dragZap = _dragZap! + d.delta.dy;
-                        if (_dragZap!.abs() > 70) {
-                          _zap(_dragZap! < 0 ? 1 : -1);
-                          _dragZap = null;
+            // PC: Mausrad regelt die Lautstärke
+            child: Listener(
+              onPointerSignal: (e) {
+                if (e is PointerScrollEvent && _desktop && !_locked) {
+                  _setVolume(_volume + (e.scrollDelta.dy < 0 ? .05 : -.05));
+                }
+              },
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _controls ? _hide() : _show(),
+                onSecondaryTap: _desktop ? _morePanel : null,
+                // Handy: waagerecht wischen spult, rechts senkrecht wischen ändert die Lautstärke
+                onHorizontalDragUpdate: _phone && !_locked && !_cur.live
+                    ? (d) {
+                        _dragSeek = (_dragSeek ?? 0) + d.delta.dx / MediaQuery.sizeOf(context).width * 180;
+                        final target = _e.state.value.position + Duration(seconds: _dragSeek!.round());
+                        _flash(
+                          '${_dragSeek! >= 0 ? '+' : '−'}${fmtDuration(Duration(seconds: _dragSeek!.abs().round()))}  ·  ${fmtDuration(target < Duration.zero ? Duration.zero : target)}',
+                        );
+                      }
+                    : null,
+                onHorizontalDragEnd: _phone && !_locked && !_cur.live
+                    ? (_) {
+                        if (_dragSeek != null) _seek(_dragSeek!.round());
+                        _dragSeek = null;
+                      }
+                    : null,
+                onVerticalDragUpdate: _phone && !_locked
+                    ? (d) {
+                        if (d.localPosition.dx > MediaQuery.sizeOf(context).width / 2) {
+                          _setVolume(_volume - d.delta.dy / 300);
+                        } else if (_cur.live && _dragZap != null) {
+                          // Links wischen: ein Senderwechsel pro Geste
+                          _dragZap = _dragZap! + d.delta.dy;
+                          if (_dragZap!.abs() > 70) {
+                            _zap(_dragZap! < 0 ? 1 : -1);
+                            _dragZap = null;
+                          }
                         }
                       }
-                    }
-                  : null,
-              onVerticalDragStart: _phone && !_locked ? (_) => _dragZap = 0 : null,
-              onDoubleTapDown: _locked
-                  ? null
-                  : (d) {
-                      if (_desktop) {
-                        _toggleFullscreen();
-                      } else {
-                        _doubleTapSeek(d.localPosition.dx < MediaQuery.sizeOf(context).width / 2 ? -_step : _step);
-                      }
-                    },
-              onDoubleTap: _locked ? null : () {},
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _e.view(_fit),
-                  // Nur Ton (Radio): Logo statt schwarzem Bild
-                  ValueListenableBuilder(
-                    valueListenable: _e.state,
-                    builder: (_, s, _) => s.playing && s.size.isEmpty && s.error == null
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
+                    : null,
+                onVerticalDragStart: _phone && !_locked ? (_) => _dragZap = 0 : null,
+                onDoubleTapDown: _locked
+                    ? null
+                    : (d) {
+                        if (_desktop) {
+                          _toggleFullscreen();
+                        } else {
+                          _doubleTapSeek(d.localPosition.dx < MediaQuery.sizeOf(context).width / 2 ? -_step : _step);
+                        }
+                      },
+                onDoubleTap: _locked ? null : () {},
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _e.view(_fit),
+                    // Nur Ton (Radio): Logo statt schwarzem Bild
+                    ValueListenableBuilder(
+                      valueListenable: _e.state,
+                      builder: (_, s, _) => s.playing && s.size.isEmpty && s.error == null
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 160,
+                                    height: 100,
+                                    child: Artwork(cur.item.logo, cur.title, fit: BoxFit.contain, width: 160),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.graphic_eq_rounded, color: Colors.white70),
+                                      const SizedBox(width: 8),
+                                      Text(tr('Nur Ton'), style: const TextStyle(color: Colors.white70)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                    ValueListenableBuilder(
+                      valueListenable: _e.state,
+                      builder: (_, s, _) => (s.error == null ? !s.buffering : _retryTimer?.isActive != true)
+                          ? const SizedBox.shrink()
+                          : Stack(
                               children: [
-                                SizedBox(
-                                  width: 160,
-                                  height: 100,
-                                  child: Artwork(cur.item.logo, cur.title, fit: BoxFit.contain, width: 160),
-                                ),
-                                const SizedBox(height: 14),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.graphic_eq_rounded, color: Colors.white70),
-                                    const SizedBox(width: 8),
-                                    Text(tr('Nur Ton'), style: const TextStyle(color: Colors.white70)),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                  ValueListenableBuilder(
-                    valueListenable: _e.state,
-                    builder: (_, s, _) => s.error != null && _retryTimer?.isActive != true
-                        ? _errorView(s.error!)
-                        : (s.buffering
-                              ? const Center(
+                                const Center(
                                   child: SizedBox(
                                     width: 44,
                                     height: 44,
                                     child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
                                   ),
-                                )
-                              : const SizedBox.shrink()),
-                  ),
-                  if (_toast != null && !_controls)
-                    Positioned(
-                      top: 36,
-                      right: 40,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: .75),
-                          borderRadius: BorderRadius.circular(10),
+                                ),
+                                // Unterhalb des großen Play-Knopfs der Bedienleiste
+                                if (s.error != null)
+                                  Align(
+                                    alignment: const Alignment(0, .3),
+                                    child: Text(
+                                      tr('Verbinde neu … ({0}/5)', [_retries]),
+                                      style: const TextStyle(color: Colors.white70),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
+                    if (_toast != null && !_controls)
+                      Positioned(
+                        top: 36,
+                        right: 40,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: .75),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(_toast!, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
                         ),
-                        child: Text(_toast!, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
                       ),
-                    ),
-                  if (!pip)
-                    IgnorePointer(
-                      ignoring: !_controls,
-                      child: AnimatedOpacity(
-                        opacity: _controls ? 1 : 0,
-                        duration: store.anim * 1.5,
-                        child: ExcludeFocus(excluding: !_controls, child: _overlay(cur, now)),
+                    if (!pip)
+                      IgnorePointer(
+                        ignoring: !_controls,
+                        child: AnimatedOpacity(
+                          opacity: _controls ? 1 : 0,
+                          duration: store.anim * 1.5,
+                          child: ExcludeFocus(excluding: !_controls || _failed, child: _overlay(cur, now)),
+                        ),
                       ),
-                    ),
-                  // Intro überspringen / Abspann mit nächster Folge: auch ohne Bedienleiste
-                  if (!pip && !_locked)
-                    ValueListenableBuilder(
-                      valueListenable: _e.state,
-                      builder: (_, s, _) {
-                        final next = _nextProgress(s);
-                        final bottom = _controls ? (_tv ? 170.0 : 140.0) : 40.0;
-                        if (next != null) {
-                          return Positioned(right: _tv ? 48 : 28, bottom: bottom, child: _nextCard(next));
-                        }
-                        if (_introVisible(s)) {
-                          return Positioned(
-                            right: _tv ? 48 : 28,
-                            bottom: bottom,
-                            child: _GhostButton(tr('Intro überspringen'), Icons.fast_forward_rounded, _skipIntro),
-                          );
-                        }
-                        return const SizedBox.shrink();
-                      },
-                    ),
-                  if (_askStill && !pip) _stillWatchingView(),
-                ],
+                    // Intro überspringen / Abspann mit nächster Folge: auch ohne Bedienleiste
+                    if (!pip && !_locked)
+                      ValueListenableBuilder(
+                        valueListenable: _e.state,
+                        builder: (_, s, _) {
+                          final next = _nextProgress(s);
+                          final bottom = _controls ? (_tv ? 170.0 : 140.0) : 40.0;
+                          if (next != null) {
+                            return Positioned(right: _tv ? 48 : 28, bottom: bottom, child: _nextCard(next));
+                          }
+                          final intro = _introProgress(s);
+                          if (intro != null) {
+                            return Positioned(
+                              right: _tv ? 48 : 28,
+                              bottom: bottom,
+                              child: _GhostButton(
+                                tr('Intro überspringen'),
+                                Icons.fast_forward_rounded,
+                                _skipIntro,
+                                progress: intro,
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    if (_askStill && !pip) _stillWatchingView(),
+                    // Fehler zuletzt: liegt immer vorne, auch über Bedienleiste und Abspann-Karte
+                    if (_failed && _e.state.value.error != null) _errorView(_e.state.value.error!),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1126,7 +1338,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   children: [
                     Text(
                       tr('Nächste Folge').toUpperCase(),
-                      style: TextStyle(color: store.accent, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1),
+                      style: TextStyle(
+                        color: store.accent,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -1189,7 +1406,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    Pill(tr('Weiter ansehen'), icon: Icons.play_arrow_rounded, primary: true, autofocus: true, onTap: _continueWatching),
+                    Pill(
+                      tr('Weiter ansehen'),
+                      icon: Icons.play_arrow_rounded,
+                      primary: true,
+                      autofocus: true,
+                      focusNode: _stillBtn,
+                      onTap: _continueWatching,
+                    ),
                     Pill(tr('Zurück'), icon: Icons.arrow_back_rounded, onTap: () => Navigator.maybePop(context)),
                   ],
                 ),
@@ -1214,7 +1438,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       downloads.record(widget.source, _cur.item, _cur.url, m);
       toast(context, tr('Aufnahme läuft ({0} min). Zu finden unter Downloads.', [m]));
     } catch (e) {
-      toast(context, '$e'.replaceFirst('Bad state: ', ''));
+      toast(context, explain(e));
     }
   });
 
@@ -1267,16 +1491,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _switchEngine() {
     store.set('engine', _e is ExoEngine ? 'mpv' : 'exo');
+    _replace(null);
+  }
+
+  /// rtmp/udp/… kann nur mpv: dorthin kein Wechsel zu ExoPlayer.
+  static bool _exotic(String url) =>
+      RegExp(r'^(rtmp|rtmps|udp|rtp|mms|mmsh|srt)://', caseSensitive: false).hasMatch(url);
+
+  /// Gleiche Liste und Folge mit anderem Player neu öffnen (Position kommt aus dem Verlauf).
+  void _replace(String? engine) {
+    _saveProgress();
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         settings: const RouteSettings(name: PlayerScreen.route),
-        builder: (_) => PlayerScreen(source: widget.source, list: widget.list, index: _i),
+        builder: (_) => PlayerScreen(source: widget.source, list: widget.list, index: _i, engine: engine),
       ),
     );
   }
 
-  Widget _errorView(String error) => Center(
+  /// Abgedunkelt über allem; Tippen daneben schließt nichts und blendet nichts ein.
+  Widget _errorView(String error) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: () {},
+    child: ColoredBox(
+      color: Colors.black.withValues(alpha: .85),
+      child: Center(child: _errorBody(error)),
+    ),
+  );
+
+  Widget _errorBody(String error) => SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1290,7 +1535,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
           child: Text(
-            error,
+            explain(error, playback: true),
             textAlign: TextAlign.center,
             maxLines: 3,
             style: const TextStyle(color: textDim),
@@ -1307,6 +1552,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               icon: Icons.refresh,
               primary: true,
               autofocus: true,
+              focusNode: _errorBtn,
               onTap: () {
                 _retries = 0;
                 _play(_i, retry: true);
@@ -1323,16 +1569,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // ---------------- Bedienoberfläche ----------------
 
-  /// "1080p", "4K" … aus der Videohöhe.
-  static String? _quality(Size s) {
-    if (s.isEmpty) return null;
-    final h = s.height;
-    if (h >= 2000) return '4K';
-    if (h >= 1400) return '1440p';
-    if (h >= 1000) return '1080p';
-    if (h >= 700) return '720p';
-    return '${h.round()}p';
-  }
+  /// "1080p", "4K" … aus der Bildgröße.
+  static String? _quality(Size s) => s.isEmpty ? null : Engine.resolution(s.width.round(), s.height.round());
 
   String _time(DateTime d) =>
       MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(d), alwaysUse24HourFormat: true);
@@ -1622,7 +1860,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
             if (value != null)
               Flexible(
-                child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim)),
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: textDim),
+                ),
               ),
           ],
         ),
@@ -1841,7 +2084,8 @@ class _GhostButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-  const _GhostButton(this.label, this.icon, this.onTap);
+  final double? progress; // Countdown 0..1: Fläche füllt sich, danach verschwindet der Knopf
+  const _GhostButton(this.label, this.icon, this.onTap, {this.progress});
 
   @override
   Widget build(BuildContext context) => Tap(
@@ -1849,18 +2093,33 @@ class _GhostButton extends StatelessWidget {
     radius: 8,
     scale: 1.05,
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: .55),
         border: Border.all(color: Colors.white54),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
         children: [
-          Icon(icon, size: 19),
-          const SizedBox(width: 7),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          if (progress != null)
+            Positioned.fill(
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: progress,
+                child: const ColoredBox(color: Colors.white24),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 19),
+                const SizedBox(width: 7),
+                Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
         ],
       ),
     ),
@@ -1897,7 +2156,10 @@ class _CountdownButton extends StatelessWidget {
             children: [
               const Icon(Icons.play_arrow_rounded, color: Colors.black),
               const SizedBox(width: 6),
-              Text(label, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w800)),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w800),
+              ),
             ],
           ),
         ],
@@ -2014,6 +2276,7 @@ class _SeekBar extends StatefulWidget {
 class _SeekBarState extends State<_SeekBar> {
   bool _focus = false;
   double? _drag, _hover;
+  int _repeat = 0; // gehaltene Taste: Schritt wächst
 
   void _seekRel(int sec) {
     final s = widget.engine.state.value;
@@ -2037,12 +2300,14 @@ class _SeekBarState extends State<_SeekBar> {
         onFocusChange: (f) => setState(() => _focus = f),
         onKeyEvent: (_, e) {
           if (e is KeyUpEvent) return KeyEventResult.ignored;
+          _repeat = e is KeyRepeatEvent ? _repeat + 1 : 0;
+          final step = widget.step * (1 + _repeat ~/ 4).clamp(1, 6);
           if (e.logicalKey == LogicalKeyboardKey.arrowLeft) {
-            _seekRel(-widget.step);
+            _seekRel(-step);
             return KeyEventResult.handled;
           }
           if (e.logicalKey == LogicalKeyboardKey.arrowRight) {
-            _seekRel(widget.step);
+            _seekRel(step);
             return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
@@ -2092,7 +2357,10 @@ class _SeekBarState extends State<_SeekBar> {
                               widthFactor: buf,
                               child: Container(
                                 height: big ? 8 : 4,
-                                decoration: BoxDecoration(color: Colors.white38, borderRadius: BorderRadius.circular(4)),
+                                decoration: BoxDecoration(
+                                  color: Colors.white38,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
                               ),
                             ),
                             FractionallySizedBox(

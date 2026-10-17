@@ -33,7 +33,7 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 | 📱 **Android & Android TV** | [`CinemaMax-*.apk`](https://github.com/Emre1001/CinemaMax/releases/latest) | Eine APK für beide. Ab Android 7. |
 | 🪟 **Windows 10 / 11** | [`CinemaMax-*-windows-setup.exe`](https://github.com/Emre1001/CinemaMax/releases/latest) | Installer starten, fertig. Ohne Admin-Rechte möglich. |
 | 🐧 **Linux (jedes)** | [`CinemaMax-*-x86_64.AppImage`](https://github.com/Emre1001/CinemaMax/releases/latest) | Ausführbar machen, starten. libmpv ist dabei. |
-| 🐧 **Ubuntu, Mint, Debian** | [`cinemamax_*_amd64.deb`](https://github.com/Emre1001/CinemaMax/releases/latest) | `sudo apt install ./cinemamax_*_amd64.deb` |
+| 🐧 **Ubuntu, Mint, Debian** | [`cinemamax_*_amd64.deb`](https://github.com/Emre1001/CinemaMax/releases/latest) | `sudo apt install ./cinemamax_*_amd64.deb` (libmpv1 oder libmpv2) |
 | 🐧 **Fedora, openSUSE** | [`cinemamax-*.x86_64.rpm`](https://github.com/Emre1001/CinemaMax/releases/latest) | `sudo dnf install ./cinemamax-*.rpm` |
 
 <details>
@@ -100,7 +100,10 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 - **libmpv** auf Linux und Windows, auf Android wählbar
 - HLS, MPEG-TS, MP4, MKV, DASH, RTSP, RTMP, UDP
 - **Auflösung wählen** (Automatisch, 1080p, 720p …) bei HLS/DASH
-- **Nächste Folge** mit Countdown im Abspann, **Intro überspringen**, „Schaust du noch?“
+- **Daten sparen**: maximale Auflösung festlegen (z. B. 480p bei langsamem Internet)
+- Scheitert ein Player, springt automatisch der andere ein (Android: ExoPlayer ↔ mpv)
+- Fehler als verständlicher Text statt Absturz
+- **Nächste Folge** mit Countdown im Abspann, **Intro überspringen** (10 s mit Countdown), „Schaust du noch?“
 - Folgenliste mit Staffeln im Player, Ton & Untertitel in einem Fenster
 - Bildformat, Tempo bis 3x, Sleep-Timer (auch „Ende dieser Folge“), Endzeit-Anzeige
 - **Externe Links**: „Öffnen mit“/„Teilen“ auf Android, Dateien/Links am PC, „Link öffnen“ im Startbildschirm
@@ -113,6 +116,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 
 ### 🕹️ Bedienung
 - **Android TV**: alles mit der Fernbedienung, eigene TV-Oberfläche
+- **Per Code empfangen**: Der Fernseher zeigt einen QR-Code und einen Code. Zugangsdaten (Xtream, M3U, Stalker) kommen per Handy-Kamera, aus der App eines Freundes oder über [die Webseite](https://emre1001.github.io/CinemaMax/tv/) von überall auf der Welt, Ende-zu-Ende verschlüsselt
 - **Handy**: Touch, untere Leiste, Querformat im Player
 - **PC**: Maus, Tastatur, feste Seitenleiste
 - Die Oberfläche erkennt das Gerät selbst
@@ -206,6 +210,9 @@ Die MAC-Adresse muss beim Anbieter freigeschaltet sein. CinemaMax findet den Por
 | <kbd>Zurück</kbd> | zur Seitenleiste | Bedienleiste ausblenden, dann zurück |
 | <kbd>Leertaste</kbd> · <kbd>F</kbd> · <kbd>M</kbd> | | Pause · Vollbild · Ton aus (PC) |
 | <kbd>N</kbd> · <kbd>S</kbd> · <kbd>↑</kbd> <kbd>↓</kbd> | | Nächste Folge · Intro überspringen · Lautstärke (PC) |
+| <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> · <kbd>0</kbd>–<kbd>9</kbd> · <kbd>[</kbd> <kbd>]</kbd> · Mausrad | | ±10 s / Pause · Sprung 0–90 % · Tempo · Lautstärke (PC) |
+| <kbd>Info</kbd> · <kbd>Guide</kbd> · <kbd>Stop</kbd> | | Info · Sender-/Folgenliste · Beenden |
+| 🔴 🟢 🟡 🔵 | | Favorit · Ton & Untertitel · Qualität · Mehr |
 | <kbd>Strg</kbd> + <kbd>F</kbd> | Suche | |
 
 ---

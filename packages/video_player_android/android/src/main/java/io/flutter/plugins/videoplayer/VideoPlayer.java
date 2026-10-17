@@ -182,6 +182,9 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
     // Get the current tracks from ExoPlayer
     Tracks tracks = exoPlayer.getCurrentTracks();
+    // CinemaMax: bei adaptiven Streams gilt die ganze Gruppe als gewählt; "isSelected" meint hier
+    // die gerade laufende Spur, damit die Qualitätsanzeige nach dem Hochschalten stimmt.
+    Format playing = exoPlayer.getVideoFormat();
 
     // Iterate through all track groups
     for (int groupIndex = 0; groupIndex < tracks.getGroups().size(); groupIndex++) {
@@ -272,6 +275,9 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
     // Get the current tracks from ExoPlayer
     Tracks tracks = exoPlayer.getCurrentTracks();
+    // CinemaMax: bei adaptiven Streams gilt die ganze Gruppe als gewählt; "isSelected" meint hier
+    // die gerade laufende Spur, damit die Qualitätsanzeige nach dem Hochschalten stimmt.
+    Format playing = exoPlayer.getVideoFormat();
 
     // Iterate through all track groups
     for (int groupIndex = 0; groupIndex < tracks.getGroups().size(); groupIndex++) {
@@ -281,7 +287,10 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
       if (group.getType() == C.TRACK_TYPE_VIDEO) {
         for (int trackIndex = 0; trackIndex < group.length; trackIndex++) {
           Format format = group.getTrackFormat(trackIndex);
-          boolean isSelected = group.isTrackSelected(trackIndex);
+          boolean isSelected =
+              playing != null && playing.id != null
+                  ? playing.id.equals(format.id)
+                  : group.isTrackSelected(trackIndex);
 
           // Create video track data with metadata
           ExoPlayerVideoTrackData videoTrack =

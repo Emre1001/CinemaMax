@@ -438,7 +438,7 @@ kbd { display: inline-block; min-width: 1.8em; padding: .1em .45em; margin: 0 .1
 
 /* Kleine Animationen in den Karten (laufen nur, wenn sichtbar) */
 .card > div[aria-hidden], .card .sources-visual, .card .swatches { flex-shrink: 0; }
-.mini-guide, .mini-dl, .mini-rec, .mini-pip, .mini-search, .mini-lang, .mini-pin { margin-bottom: auto; }
+.mini-guide, .mini-dl, .mini-rec, .mini-pip, .mini-search, .mini-lang, .mini-pin, .mini-tags { margin-bottom: auto; }
 .card:not(.in) * { animation-play-state: paused !important; }
 
 .sources-visual { position: relative; width: 300px; height: 170px; }
@@ -489,6 +489,11 @@ kbd { display: inline-block; min-width: 1.8em; padding: .1em .45em; margin: 0 .1
 .mini-lang span { position: absolute; font-size: 32px; font-weight: 800; letter-spacing: -.04em; opacity: 0; animation: lang 6s var(--ease) infinite; }
 .mini-lang span:nth-child(2) { animation-delay: 2s; } .mini-lang span:nth-child(3) { animation-delay: 4s; }
 @keyframes lang { 0% { opacity: 0; transform: translateY(100%); } 8%, 28% { opacity: 1; transform: none; } 36%, 100% { opacity: 0; transform: translateY(-100%); } }
+
+/* Neue Funktionen: Knöpfe wie in der App, der erste in Akzentfarbe */
+.mini-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.mini-tags span { padding: 7px 12px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+.mini-tags span:first-child { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .mini-pin { display: flex; gap: 10px; }
 .mini-pin i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--dim); animation: pin 3.2s infinite; }
@@ -679,3 +684,26 @@ code { font-size: .92em; }
 .ld-rec { position: absolute; top: 14px; right: 14px; padding: 3px 9px; border-radius: 100px; background: var(--accent); color: var(--on-accent); font-style: normal; font-size: 12px; font-weight: 700; display: none; }
 .ld-opt.rec { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
 .ld-opt.rec .ld-rec { display: inline-block; }
+
+/* ---------- An Fernseher senden ---------- */
+.send-points { list-style: none; padding: 0; margin: 0 0 28px; display: grid; gap: 14px; }
+.send-points li { color: var(--dim); font-size: 17px; padding-left: 30px; position: relative; }
+.send-points li b { color: var(--text); }
+.send-points li::before { content: "✓"; position: absolute; left: 0; top: 0; color: var(--accent); font-weight: 800; }
+.send-stage { padding: 32px; align-content: center; gap: 26px; }
+.send-tv { display: flex; gap: 24px; align-items: center; padding: 22px; border-radius: 18px; background: var(--screen); color: #F5F5F7; border: 1px solid var(--line); }
+.link-qr { width: 132px; height: 132px; flex: none; border-radius: 12px; }
+.send-tv small { display: block; color: #8E8E96; font-weight: 600; margin-bottom: 6px; }
+.send-tv code { display: block; white-space: nowrap; font: 800 22px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 3px; background: #1D1D21; padding: 8px 12px; border-radius: 10px; margin-bottom: 12px; }
+.send-wait { display: flex; gap: 8px; align-items: center; color: #8E8E96; font-size: 14px; }
+.send-wait i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent); border-top-color: transparent; animation: send-spin .8s linear infinite; }
+.send-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: s; }
+.send-steps li { display: flex; gap: 10px; align-items: center; color: var(--dim); opacity: .35; animation: send-step 8s infinite; }
+.send-steps li::before { content: "✓"; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; color: #fff; background: #3DD68C; }
+.send-steps li:nth-child(2) { animation-delay: .8s; }
+.send-steps li:nth-child(3) { animation-delay: 1.6s; }
+.send-steps li:nth-child(4) { animation-delay: 2.4s; }
+@keyframes send-step { 0%, 8% { opacity: .35; color: var(--dim); } 14%, 85% { opacity: 1; color: var(--text); } 100% { opacity: .35; } }
+@keyframes send-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .send-steps li, .send-wait i { animation: none; opacity: 1; } }
+@media (max-width: 560px) { .send-tv { flex-direction: column; text-align: center; } .send-wait { justify-content: center; } }

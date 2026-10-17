@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../i18n.dart';
+import '../errors.dart';
 import '../links.dart';
 import '../models.dart';
 import '../repo.dart';
@@ -15,6 +16,7 @@ import 'common.dart';
 import 'downloads_view.dart';
 import 'player.dart';
 import 'settings.dart';
+import 'tv_link_ui.dart';
 
 const iptvCountries = {
   'de': 'Deutschland', 'at': 'Österreich', 'ch': 'Schweiz', 'tr': 'Türkei', 'uk': 'Großbritannien',
@@ -67,7 +69,7 @@ Future<void> openLink(BuildContext c, String raw) async {
           await f.writeAsString(text);
           url = f.path;
         } catch (e) {
-          if (c.mounted) toast(c, tr('Fehler: {0}', [e]));
+          if (c.mounted) toast(c, tr('Fehler: {0}', [explain(e)]));
           return;
         }
       }
@@ -97,14 +99,14 @@ Future<void> askLink(BuildContext c) async {
       content: SizedBox(
         width: 520,
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(
+          dpadField(TextField(
             controller: ctrl,
             autofocus: true,
             keyboardType: TextInputType.url,
             autocorrect: false,
             decoration: const InputDecoration(hintText: 'http://…'),
             onSubmitted: (v) => Navigator.pop(d, v),
-          ),
+          )),
           const SizedBox(height: 10),
           Text(tr('Stream, Video oder Playlist (M3U, Xtream get.php)'), style: const TextStyle(color: textDim, fontSize: 13)),
         ]),
@@ -144,13 +146,13 @@ class _StartScreenState extends State<StartScreen> {
         barrierDismissible: false,
         builder: (d) => AlertDialog(
           title: Text(tr('PIN eingeben')),
-          content: TextField(
+          content: dpadField(TextField(
             controller: c,
             autofocus: true,
             obscureText: true,
             keyboardType: TextInputType.number,
             onSubmitted: (v) => Navigator.pop(d, v),
-          ),
+          )),
           actions: [FilledButton(onPressed: () => Navigator.pop(d, c.text), child: Text(tr('OK')))],
         ),
       );
@@ -328,8 +330,9 @@ class SourcesScreen extends StatefulWidget {
 }
 
 class _SourcesScreenState extends State<SourcesScreen> {
-  Future<void> _edit([Source? s]) async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => SourceEditor(source: s, iptv: widget.iptv)));
+  Future<void> _edit([Source? s, bool receive = false]) async {
+    await Navigator.push(
+        context, MaterialPageRoute(builder: (_) => SourceEditor(source: s, iptv: widget.iptv, receive: receive)));
     setState(() {});
   }
 
@@ -340,7 +343,12 @@ class _SourcesScreenState extends State<SourcesScreen> {
       'refresh': tr('Neu laden (Cache ignorieren)'),
       if (builtin) 'country': tr('Land wählen'),
       if (!builtin) 'epg': tr('EPG-URL festlegen'),
-      if (!builtin) ...{'edit': tr('Bearbeiten'), 'up': tr('Nach oben'), 'delete': tr('Löschen')},
+      if (!builtin) ...{
+        'send': tr('An anderes Gerät senden'),
+        'edit': tr('Bearbeiten'),
+        'up': tr('Nach oben'),
+        'delete': tr('Löschen'),
+      },
     });
     if (!mounted) return;
     switch (a) {
@@ -352,7 +360,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
             title: Text(tr('EPG-URL (XMLTV, auch .gz)')),
             content: SizedBox(
               width: 520,
-              child: TextField(controller: c, autofocus: true, keyboardType: TextInputType.url, onSubmitted: (v) => Navigator.pop(d, v)),
+              child: dpadField(TextField(controller: c, autofocus: true, keyboardType: TextInputType.url, onSubmitted: (v) => Navigator.pop(d, v))),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(d, ''), child: Text(tr('Entfernen'))),
@@ -371,8 +379,9 @@ class _SourcesScreenState extends State<SourcesScreen> {
           await Repo.load(s, force: true);
           if (mounted) toast(context, tr('Aktualisiert'));
         } catch (e) {
-          if (mounted) toast(context, tr('Fehler: {0}', [e]));
+          if (mounted) toast(context, tr('Fehler: {0}', [explain(e)]));
         }
+      case 'send': sendServer(context, s);
       case 'edit': _edit(s);
       case 'up':
         // Vor den vorherigen Eintrag derselben Liste schieben
@@ -414,8 +423,12 @@ class _SourcesScreenState extends State<SourcesScreen> {
           const SizedBox(height: 4),
           Align(
             alignment: Alignment.centerLeft,
-            child: Pill(widget.iptv ? tr('Eigene IPTV-Liste hinzufügen') : tr('Server hinzufügen'),
-                icon: Icons.add, primary: true, autofocus: list.isEmpty, onTap: () => _edit()),
+            child: Wrap(spacing: 10, runSpacing: 10, children: [
+              Pill(widget.iptv ? tr('Eigene IPTV-Liste hinzufügen') : tr('Server hinzufügen'),
+                  icon: Icons.add, primary: true, autofocus: list.isEmpty, onTap: () => _edit()),
+              // Zugangsdaten vom Handy oder von Freunden, ohne Tippen mit der Fernbedienung
+              Pill(tr('Per Code empfangen'), icon: Icons.qr_code_2_rounded, onTap: () => _edit(null, true)),
+            ]),
           ),
           if (list.isNotEmpty)
             Padding(
@@ -518,12 +531,29 @@ const _typeLabel = {
 
 final _macRe = RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$');
 
+/// „00-1a-79-12-34-56“, „001A79123456“ … wird zu „00:1A:79:12:34:56“.
+String normalizeMac(String v) {
+  final hex = v.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+  if (hex.length != 12) return v.trim().toUpperCase();
+  return [for (var i = 0; i < 12; i += 2) hex.substring(i, i + 2)].join(':');
+}
+
+/// Xtream-Zugang aus einem get.php- oder player_api.php-Link (Pfad davor bleibt erhalten).
+({String host, String user, String pass})? xtreamFromUrl(Uri u) {
+  final q = u.queryParameters;
+  final file = u.pathSegments.isEmpty ? '' : u.pathSegments.last;
+  if (!const {'get.php', 'player_api.php'}.contains(file) || q['username'] == null) return null;
+  return (host: '${u.origin}${u.path.substring(0, u.path.lastIndexOf('/'))}', user: q['username']!, pass: q['password'] ?? '');
+}
+
 class SourceEditor extends StatefulWidget {
   final Source? source;
   final bool iptv;
   /// Von außen geöffneter Playlist-Link: vorbelegt, nach dem Speichern direkt öffnen.
   final String? prefill, prefillName;
-  const SourceEditor({super.key, this.source, this.iptv = false, this.prefill, this.prefillName});
+  /// Gleich den QR-Code zum Empfangen zeigen.
+  final bool receive;
+  const SourceEditor({super.key, this.source, this.iptv = false, this.prefill, this.prefillName, this.receive = false});
 
   @override
   State<SourceEditor> createState() => _SourceEditorState();
@@ -536,26 +566,39 @@ class _SourceEditorState extends State<SourceEditor> {
   late final _url = TextEditingController(text: widget.source?.url ?? widget.prefill);
   late final _user = TextEditingController(text: widget.source?.user);
   late final _pass = TextEditingController(text: widget.source?.pass);
-  // MAG-Geräte nutzen das Präfix 00:1A:79
-  late final _mac = TextEditingController(text: widget.source?.mac.isNotEmpty == true ? widget.source!.mac : '00:1A:79:');
+  late final _mac = TextEditingController(text: widget.source?.mac);
   bool _busy = false, _showPass = false;
 
-  Future<void> _save() async {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.receive) WidgetsBinding.instance.addPostFrameCallback((_) => _receive());
+  }
+
+  /// Prüft, verbindet und speichert. Rückgabe: Fehlertext, null = gespeichert.
+  Future<String?> _save() async {
+    String? fail(String m) {
+      if (mounted) toast(context, m);
+      return m;
+    }
+
     var url = _url.text.trim();
     var type = _type;
     var user = _user.text.trim(), pass = _pass.text.trim();
-    final mac = _mac.text.trim().toUpperCase().replaceAll('-', ':');
-    if (url.isEmpty) return toast(context, tr('URL fehlt'));
-    if (type == SourceType.stalker && !_macRe.hasMatch(mac)) return toast(context, tr('MAC-Adresse ungültig (Format 00:1A:79:XX:XX:XX)'));
+    final mac = normalizeMac(_mac.text);
+    if (url.isEmpty) return fail(tr('URL fehlt'));
+    if (type == SourceType.stalker && !_macRe.hasMatch(mac)) return fail(tr('MAC-Adresse ungültig (Format 00:1A:79:XX:XX:XX)'));
     // Ohne Schema: http ergänzen (nicht bei Dateien und rtmp/… -Links)
     if (!url.contains('://') && localPath(url) == null) url = 'http://$url';
-    // get.php-Links sind Xtream-Zugänge: als Xtream speichern (Filme/Serien/EPG besser)
+    // get.php-Links sind Xtream-Zugänge: als Xtream speichern (Filme/Serien/EPG besser).
+    // Im Xtream-Feld eingefügte get.php-/player_api.php-Links: Zugangsdaten übernehmen.
     final u = Uri.tryParse(url);
-    if (type == SourceType.m3u && u != null && u.path.endsWith('get.php') && u.queryParameters['username'] != null) {
+    final m3uUrl = url;
+    final xt = u == null ? null : xtreamFromUrl(u);
+    if (xt != null && (type == SourceType.m3u || type == SourceType.xtream)) {
+      if (type == SourceType.m3u || user.isEmpty) (user, pass) = (xt.user, xt.pass);
       type = SourceType.xtream;
-      user = u.queryParameters['username']!;
-      pass = u.queryParameters['password'] ?? '';
-      url = '${u.scheme}://${u.host}${u.hasPort ? ':${u.port}' : ''}';
+      url = xt.host;
     }
     final s = Source(
       id: widget.source?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
@@ -573,20 +616,51 @@ class _SourceEditorState extends State<SourceEditor> {
     setState(() => _busy = true);
     try {
       if (type == SourceType.xtream) {
-        await Repo.xtreamAccount(s);
+        try {
+          await Repo.xtreamAccount(s);
+        } catch (_) {
+          // Manche Anbieter erlauben nur die Playlist (get.php), nicht die Xtream-API: dann als M3U
+          if (_type != SourceType.m3u) rethrow;
+          s
+            ..type = SourceType.m3u
+            ..url = m3uUrl
+            ..user = ''
+            ..pass = '';
+        }
       }
       await Repo.load(s, force: true);
       store.saveSource(s);
-      if (!mounted) return;
-      widget.prefill != null ? openSource(context, s, replace: true) : Navigator.pop(context);
+      if (mounted) widget.prefill != null ? openSource(context, s, replace: true) : Navigator.pop(context);
+      return null;
     } catch (e) {
-      if (mounted) toast(context, tr('Verbindung fehlgeschlagen: {0}', [e]));
+      return fail(tr('Verbindung fehlgeschlagen: {0}', [explain(e)]));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Widget _field(TextEditingController c, String label, {bool secret = false, TextInputType? type}) => Padding(
+  /// Daten per Code/QR empfangen (Handy, PC oder ein Freund irgendwo), dann direkt verbinden
+  /// und dem Absender das Ergebnis melden.
+  Future<void> _receive() async {
+    final got = await receiveServer(context);
+    if (got == null || !mounted) return;
+    final d = got.data;
+    setState(() {
+      if (!widget.iptv) _type = SourceType.values.asNameMap()['${d['type']}'] ?? _type;
+      if ('${d['name'] ?? ''}'.trim().isNotEmpty) _name.text = '${d['name']}'.trim();
+      _url.text = '${d['url'] ?? ''}'.trim();
+      _user.text = '${d['user'] ?? ''}'.trim();
+      _pass.text = '${d['pass'] ?? ''}';
+      _mac.text = '${d['mac'] ?? ''}'.trim();
+    });
+    toast(context, tr('Daten empfangen, verbinde …'));
+    final error = await _save();
+    await got.link
+        .send({'k': 'status', 'state': error == null ? 'ok' : 'error', 'text': error})
+        .catchError((_) {});
+  }
+
+  Widget _field(TextEditingController c, String label, {bool secret = false, TextInputType? type, String? hint}) => Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: InputBox(
           controller: c,
@@ -594,6 +668,7 @@ class _SourceEditorState extends State<SourceEditor> {
           keyboardType: type,
           decoration: InputDecoration(
             labelText: label,
+            hintText: hint,
             suffixIcon: secret
                 ? IconButton(
                     icon: Icon(_showPass ? Icons.visibility_off : Icons.visibility),
@@ -638,13 +713,17 @@ class _SourceEditorState extends State<SourceEditor> {
               _field(_user, tr('Benutzername')),
               _field(_pass, tr('Passwort'), secret: true),
             ],
-            if (_type == SourceType.stalker) _field(_mac, tr('MAC-Adresse (00:1A:79:XX:XX:XX)')),
+            if (_type == SourceType.stalker) _field(_mac, tr('MAC-Adresse'), hint: '00:1A:79:XX:XX:XX'),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
               child: _busy
                   ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())
-                  : Pill(tr('Verbinden & speichern'), icon: Icons.check, primary: true, autofocus: widget.iptv || widget.prefill != null, onTap: _save),
+                  : Wrap(spacing: 10, runSpacing: 10, children: [
+                      Pill(tr('Verbinden & speichern'), icon: Icons.check, primary: true, autofocus: widget.iptv || widget.prefill != null, onTap: _save),
+                      // Tippen mit der Fernbedienung ist mühsam
+                      Pill(tr('Per Code empfangen'), icon: Icons.qr_code_2_rounded, onTap: _receive),
+                    ]),
             ),
             const SizedBox(height: 16),
             Text(
