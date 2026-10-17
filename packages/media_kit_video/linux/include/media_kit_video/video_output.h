@@ -16,6 +16,12 @@
 #include "mpv/render.h"
 #include "mpv/render_gl.h"
 
+// CinemaMax: libmpv zur Laufzeit laden (libmpv.so.2 oder libmpv.so.1). Fest gelinkt
+// startet die App nur auf Distributionen mit genau der libmpv-Version des Build-Rechners.
+void* mpv_dl_sym(const char* name);
+#define MPV_DL(f) \
+  ([] { static auto p = reinterpret_cast<decltype(&::f)>(mpv_dl_sym(#f)); return p; }())
+
 typedef struct _VideoOutputConfiguration {
   gint64 width;
   gint64 height;

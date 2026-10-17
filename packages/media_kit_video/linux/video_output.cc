@@ -14,6 +14,27 @@
 #include <epoxy/glx.h>
 #include <gdk/gdkwayland.h>
 #include <gdk/gdkx.h>
+#include <dlfcn.h>
+
+void* mpv_dl_sym(const char* name) {
+  // Dieselbe Reihenfolge wie package:media_kit, damit mpv_handle und Funktionen
+  // aus derselben Bibliothek stammen; bereits geladene zuerst.
+  static void* lib = [] {
+    const char* names[] = {g_getenv("LIBMPV_LIBRARY_PATH"), "libmpv.so",
+                           "libmpv.so.2", "libmpv.so.1"};
+    const int modes[] = {RTLD_NOW | RTLD_NOLOAD, RTLD_NOW};
+    for (int flags : modes) {
+      for (const char* n : names) {
+        if (n == nullptr) continue;
+        if (void* h = dlopen(n, flags)) return h;
+      }
+    }
+    return static_cast<void*>(nullptr);
+  }();
+  void* p = lib == nullptr ? nullptr : dlsym(lib, name);
+  if (p == nullptr) g_error("media_kit: %s nicht in libmpv gefunden", name);
+  return p;
+}
 
 struct _VideoOutput {
   GObject parent_instance;
@@ -44,7 +65,7 @@ static void video_output_dispose(GObject* object) {
   
   // Make sure that no more callbacks are invoked from mpv.
   if (self->render_context) {
-    mpv_render_context_set_update_callback(self->render_context, NULL, NULL);
+    MPV_DL(mpv_render_context_set_update_callback)(self->render_context, NULL, NULL);
   }
 
   // H/W
@@ -63,7 +84,7 @@ static void video_output_dispose(GObject* object) {
       if (self->egl_context != EGL_NO_CONTEXT) {
         eglMakeCurrent(self->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, self->egl_context);
       }
-      mpv_render_context_free(self->render_context);
+      MPV_DL(mpv_render_context_free)(self->render_context);
       self->render_context = NULL;
       
       // Restore Flutter's context
@@ -87,7 +108,7 @@ static void video_output_dispose(GObject* object) {
     g_free(self->pixel_buffer);
     g_object_unref(self->texture_sw);
     if (self->render_context != NULL) {
-      mpv_render_context_free(self->render_context);
+      MPV_DL(mpv_render_context_free)(self->render_context);
       self->render_context = NULL;
     }
   }
@@ -137,7 +158,7 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
   }
   self->configuration.enable_hardware_acceleration = TRUE;
 #endif
-  mpv_set_option_string(self->handle, "video-sync", "audio");
+  MPV_DL(mpv_set_option_string)(self->handle, "video-sync", "audio");
   // Causes frame drops with `pulse` audio output. (SlotSun/dart_simple_live#42)
   // mpv_set_option_string(self->handle, "video-timing-offset", "0");
   gboolean hardware_acceleration_supported = FALSE;
@@ -219,8 +240,8 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
                 params[2].data = gdk_x11_display_get_xdisplay(display);
               }
               
-              if (mpv_render_context_create(&self->render_context, self->handle, params) == 0) {
-                mpv_render_context_set_update_callback(
+              if (MPV_DL(mpv_render_context_create)(&self->render_context, self->handle, params) == 0) {
+                MPV_DL(mpv_render_context_set_update_callback)(
                     self->render_context,
                     [](void* data) {
                       VideoOutput* self = (VideoOutput*)data;
@@ -295,9 +316,9 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
           {MPV_RENDER_PARAM_API_TYPE, (void*)MPV_RENDER_API_TYPE_SW},
           {MPV_RENDER_PARAM_INVALID, (void*)0},
       };
-      if (mpv_render_context_create(&self->render_context, self->handle,
+      if (MPV_DL(mpv_render_context_create)(&self->render_context, self->handle,
                                     params) == 0) {
-        mpv_render_context_set_update_callback(
+        MPV_DL(mpv_render_context_set_update_callback)(
             self->render_context,
             [](void* data) {
               gdk_threads_add_idle(
@@ -319,7 +340,7 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
                           {MPV_RENDER_PARAM_SW_POINTER, self->pixel_buffer},
                           {MPV_RENDER_PARAM_INVALID, (void*)0},
                       };
-                      mpv_render_context_render(self->render_context, params);
+                      MPV_DL(mpv_render_context_render)(self->render_context, params);
                       fl_texture_registrar_mark_texture_frame_available(
                           self->texture_registrar,
                           FL_TEXTURE(self->texture_sw));
@@ -431,8 +452,8 @@ gboolean video_output_ensure_gl(VideoOutput* self) {
       params[2].type = MPV_RENDER_PARAM_X11_DISPLAY;
       params[2].data = gdk_x11_display_get_xdisplay(display);
     }
-    if (mpv_render_context_create(&self->render_context, self->handle, params) == 0) {
-      mpv_render_context_set_update_callback(
+    if (MPV_DL(mpv_render_context_create)(&self->render_context, self->handle, params) == 0) {
+      MPV_DL(mpv_render_context_set_update_callback)(
           self->render_context,
           [](void* data) {
             VideoOutput* self = (VideoOutput*)data;
@@ -484,7 +505,7 @@ gint64 video_output_get_width(VideoOutput* self) {
   gint64 height = 0;
 
   mpv_node params;
-  mpv_get_property(self->handle, "video-out-params", MPV_FORMAT_NODE, &params);
+  MPV_DL(mpv_get_property)(self->handle, "video-out-params", MPV_FORMAT_NODE, &params);
 
   int64_t dw = 0, dh = 0, rotate = 0;
   if (params.format == MPV_FORMAT_NODE_MAP) {
@@ -503,7 +524,7 @@ gint64 video_output_get_width(VideoOutput* self) {
         }
       }
     }
-    mpv_free_node_contents(&params);
+    MPV_DL(mpv_free_node_contents)(&params);
   }
 
   width = rotate == 0 || rotate == 180 ? dw : dh;
@@ -534,7 +555,7 @@ gint64 video_output_get_height(VideoOutput* self) {
   gint64 height = 0;
 
   mpv_node params;
-  mpv_get_property(self->handle, "video-out-params", MPV_FORMAT_NODE, &params);
+  MPV_DL(mpv_get_property)(self->handle, "video-out-params", MPV_FORMAT_NODE, &params);
 
   int64_t dw = 0, dh = 0, rotate = 0;
   if (params.format == MPV_FORMAT_NODE_MAP) {
@@ -553,7 +574,7 @@ gint64 video_output_get_height(VideoOutput* self) {
         }
       }
     }
-    mpv_free_node_contents(&params);
+    MPV_DL(mpv_free_node_contents)(&params);
   }
 
   width = rotate == 0 || rotate == 180 ? dw : dh;

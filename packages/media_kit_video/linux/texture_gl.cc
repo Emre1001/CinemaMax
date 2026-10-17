@@ -245,7 +245,7 @@ gboolean texture_gl_populate_texture(FlTextureGL* texture,
         {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
         {MPV_RENDER_PARAM_INVALID, NULL},
     };
-    mpv_render_context_render(render_context, params);
+    MPV_DL(mpv_render_context_render)(render_context, params);
     
     // Unbind FBO
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

@@ -8,6 +8,7 @@ import '../i18n.dart';
 import '../errors.dart';
 import '../links.dart';
 import '../models.dart';
+import '../remote_setup.dart';
 import '../repo.dart';
 import '../store.dart';
 import '../update.dart';
@@ -519,6 +520,21 @@ const _typeLabel = {
 
 final _macRe = RegExp(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$');
 
+/// „00-1a-79-12-34-56“, „001A79123456“ … wird zu „00:1A:79:12:34:56“.
+String normalizeMac(String v) {
+  final hex = v.toUpperCase().replaceAll(RegExp(r'[^0-9A-F]'), '');
+  if (hex.length != 12) return v.trim().toUpperCase();
+  return [for (var i = 0; i < 12; i += 2) hex.substring(i, i + 2)].join(':');
+}
+
+/// Xtream-Zugang aus einem get.php- oder player_api.php-Link (Pfad davor bleibt erhalten).
+({String host, String user, String pass})? xtreamFromUrl(Uri u) {
+  final q = u.queryParameters;
+  final file = u.pathSegments.isEmpty ? '' : u.pathSegments.last;
+  if (!const {'get.php', 'player_api.php'}.contains(file) || q['username'] == null) return null;
+  return (host: '${u.origin}${u.path.substring(0, u.path.lastIndexOf('/'))}', user: q['username']!, pass: q['password'] ?? '');
+}
+
 class SourceEditor extends StatefulWidget {
   final Source? source;
   final bool iptv;
@@ -537,26 +553,27 @@ class _SourceEditorState extends State<SourceEditor> {
   late final _url = TextEditingController(text: widget.source?.url ?? widget.prefill);
   late final _user = TextEditingController(text: widget.source?.user);
   late final _pass = TextEditingController(text: widget.source?.pass);
-  // MAG-Geräte nutzen das Präfix 00:1A:79
-  late final _mac = TextEditingController(text: widget.source?.mac.isNotEmpty == true ? widget.source!.mac : '00:1A:79:');
+  late final _mac = TextEditingController(text: widget.source?.mac);
   bool _busy = false, _showPass = false;
 
   Future<void> _save() async {
     var url = _url.text.trim();
     var type = _type;
     var user = _user.text.trim(), pass = _pass.text.trim();
-    final mac = _mac.text.trim().toUpperCase().replaceAll('-', ':');
+    final mac = normalizeMac(_mac.text);
     if (url.isEmpty) return toast(context, tr('URL fehlt'));
     if (type == SourceType.stalker && !_macRe.hasMatch(mac)) return toast(context, tr('MAC-Adresse ungültig (Format 00:1A:79:XX:XX:XX)'));
     // Ohne Schema: http ergänzen (nicht bei Dateien und rtmp/… -Links)
     if (!url.contains('://') && localPath(url) == null) url = 'http://$url';
-    // get.php-Links sind Xtream-Zugänge: als Xtream speichern (Filme/Serien/EPG besser)
+    // get.php-Links sind Xtream-Zugänge: als Xtream speichern (Filme/Serien/EPG besser).
+    // Im Xtream-Feld eingefügte get.php-/player_api.php-Links: Zugangsdaten übernehmen.
     final u = Uri.tryParse(url);
-    if (type == SourceType.m3u && u != null && u.path.endsWith('get.php') && u.queryParameters['username'] != null) {
+    final m3uUrl = url;
+    final xt = u == null ? null : xtreamFromUrl(u);
+    if (xt != null && (type == SourceType.m3u || type == SourceType.xtream)) {
+      if (type == SourceType.m3u || user.isEmpty) (user, pass) = (xt.user, xt.pass);
       type = SourceType.xtream;
-      user = u.queryParameters['username']!;
-      pass = u.queryParameters['password'] ?? '';
-      url = '${u.scheme}://${u.host}${u.hasPort ? ':${u.port}' : ''}';
+      url = xt.host;
     }
     final s = Source(
       id: widget.source?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
@@ -574,7 +591,17 @@ class _SourceEditorState extends State<SourceEditor> {
     setState(() => _busy = true);
     try {
       if (type == SourceType.xtream) {
-        await Repo.xtreamAccount(s);
+        try {
+          await Repo.xtreamAccount(s);
+        } catch (_) {
+          // Manche Anbieter erlauben nur die Playlist (get.php), nicht die Xtream-API: dann als M3U
+          if (_type != SourceType.m3u) rethrow;
+          s
+            ..type = SourceType.m3u
+            ..url = m3uUrl
+            ..user = ''
+            ..pass = '';
+        }
       }
       await Repo.load(s, force: true);
       store.saveSource(s);
@@ -587,7 +614,54 @@ class _SourceEditorState extends State<SourceEditor> {
     }
   }
 
-  Widget _field(TextEditingController c, String label, {bool secret = false, TextInputType? type}) => Padding(
+  /// Fernseher: Daten am Handy im Browser eingeben, danach direkt verbinden.
+  Future<void> _fromPhone() async {
+    RemoteSetup? server;
+    BuildContext? dialog; // nur solange das Fenster offen ist
+    try {
+      server = await RemoteSetup.start((d) {
+        if (!mounted) return;
+        setState(() {
+          if (!widget.iptv) _type = SourceType.values.asNameMap()[d['type']] ?? _type;
+          _url.text = d['url']?.trim() ?? '';
+          _user.text = d['user']?.trim() ?? '';
+          _pass.text = d['pass'] ?? '';
+          _mac.text = d['mac']?.trim() ?? '';
+        });
+        if (dialog != null && dialog!.mounted) Navigator.pop(dialog!, true);
+      });
+    } catch (e) {
+      if (mounted) toast(context, explain(e));
+      return;
+    }
+    if (!mounted) return server.stop();
+    final got = await showDialog<bool>(
+      context: context,
+      builder: (d) {
+        dialog = d;
+        return AlertDialog(
+          title: Text(tr('Mit dem Handy eingeben')),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(tr('Handy ins selbe WLAN, im Browser öffnen:')),
+            const SizedBox(height: 14),
+            SelectableText(server!.url, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 14),
+            Row(children: [
+              const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+              const SizedBox(width: 12),
+              Text(tr('Warte auf Eingabe …'), style: const TextStyle(color: textDim)),
+            ]),
+          ]),
+          actions: [TextButton(autofocus: true, onPressed: () => Navigator.pop(d), child: Text(tr('Abbrechen')))],
+        );
+      },
+    );
+    dialog = null;
+    await server.stop();
+    if (got == true && mounted) _save();
+  }
+
+  Widget _field(TextEditingController c, String label, {bool secret = false, TextInputType? type, String? hint}) => Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: InputBox(
           controller: c,
@@ -595,6 +669,7 @@ class _SourceEditorState extends State<SourceEditor> {
           keyboardType: type,
           decoration: InputDecoration(
             labelText: label,
+            hintText: hint,
             suffixIcon: secret
                 ? IconButton(
                     icon: Icon(_showPass ? Icons.visibility_off : Icons.visibility),
@@ -639,13 +714,17 @@ class _SourceEditorState extends State<SourceEditor> {
               _field(_user, tr('Benutzername')),
               _field(_pass, tr('Passwort'), secret: true),
             ],
-            if (_type == SourceType.stalker) _field(_mac, tr('MAC-Adresse (00:1A:79:XX:XX:XX)')),
+            if (_type == SourceType.stalker) _field(_mac, tr('MAC-Adresse'), hint: '00:1A:79:XX:XX:XX'),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
               child: _busy
                   ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator())
-                  : Pill(tr('Verbinden & speichern'), icon: Icons.check, primary: true, autofocus: widget.iptv || widget.prefill != null, onTap: _save),
+                  : Wrap(spacing: 10, runSpacing: 10, children: [
+                      Pill(tr('Verbinden & speichern'), icon: Icons.check, primary: true, autofocus: widget.iptv || widget.prefill != null, onTap: _save),
+                      // Tippen mit der Fernbedienung ist mühsam
+                      if (formFactor(context) == Ff.tv) Pill(tr('Mit dem Handy eingeben'), icon: Icons.smartphone_rounded, onTap: _fromPhone),
+                    ]),
             ),
             const SizedBox(height: 16),
             Text(

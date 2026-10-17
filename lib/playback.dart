@@ -159,9 +159,30 @@ class ExoEngine extends Engine {
     return t.length > 160 ? '${t.substring(0, 160)} …' : t;
   }
 
+  // Adaptive Streams wechseln die Auflösung, video_player meldet nur die erste: laufende Spur nachfragen
+  Size? _playingSize;
+  DateTime _sizeCheck = DateTime(0);
+
+  Future<void> _checkSize(VideoPlayerController c) async {
+    try {
+      if (!c.isVideoTrackSupportAvailable()) return;
+      final t = (await c.getVideoTracks()).where((t) => t.isSelected && (t.width ?? 0) > 0).toList();
+      if (t.length != 1 || c != _c) return;
+      final size = Size(t.single.width!.toDouble(), t.single.height!.toDouble());
+      if (size == _playingSize) return;
+      _playingSize = size;
+      _sync();
+    } catch (_) {/* Spuren gerade nicht abrufbar */}
+  }
+
   void _sync() {
-    final v = _c?.value;
-    if (v == null) return;
+    final c = _c;
+    final v = c?.value;
+    if (c == null || v == null) return;
+    if (v.isPlaying && DateTime.now().difference(_sizeCheck) > const Duration(seconds: 3)) {
+      _sizeCheck = DateTime.now();
+      _checkSize(c);
+    }
     final err = v.hasError ? v.errorDescription : null;
     state.value = PlaybackState(
       position: v.position,
@@ -171,7 +192,7 @@ class ExoEngine extends Engine {
       buffering: v.isBuffering || !v.isInitialized,
       ready: v.isInitialized,
       error: err,
-      size: v.size,
+      size: _playingSize ?? v.size,
     );
     if (v.isCompleted && !_completedSent) {
       _completedSent = true;
@@ -196,6 +217,7 @@ class ExoEngine extends Engine {
     await old?.dispose();
     state.value = const PlaybackState();
     _completedSent = false;
+    _playingSize = null;
     qualityId = null;
 
     final gen = ++_gen;
@@ -381,7 +403,11 @@ class MpvEngine extends Engine {
     }
 
     _subs.addAll([
-      _p.stream.position.listen((_) => up()),
+      // mpv meldet „playing“ schon vor dem Laden: erst laufende Zeit oder Bild heißt bereit (auch Radio)
+      _p.stream.position.listen((p) {
+        if (p > Duration.zero) _ready = true;
+        up();
+      }),
       _p.stream.playing.listen((_) => up()),
       _p.stream.buffering.listen((_) => up()),
       _p.stream.duration.listen((_) => up()),
@@ -415,9 +441,21 @@ class MpvEngine extends Engine {
     if (store.get('normalize', false)) await set('af', 'lavfi=[dynaudnorm=f=150:g=15]');
   }
 
+  // Linux: die GPU-Ausgabe entsteht erst beim ersten Zeichnen der Textur. Vorher geöffnete Streams finden
+  // keine Videoausgabe und hängen bei 0:00 (schnelle Server, Downloads): erst ein paar Bilder zeichnen lassen.
+  late final Future<void> _outputReady = () async {
+    if (!Platform.isLinux) return;
+    await _video.platform.future;
+    for (var i = 0; i < 3; i++) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    await Future.delayed(const Duration(milliseconds: 150));
+  }();
+
   @override
   Future<void> open(String url, Map<String, String> headers, {Duration? start}) async {
     await _configure();
+    await _outputReady;
     _ready = false;
     qualityId = null;
     state.value = const PlaybackState();

@@ -50,12 +50,15 @@ if(MEDIA_KIT_LIBS_AVAILABLE)
     "${epoxy_INCLUDE_DIRS}"
   )
 
+  # CinemaMax: libmpv nur Header, geladen wird zur Laufzeit (mpv_dl_sym in video_output.cc)
+  target_include_directories(${PLUGIN_NAME} PRIVATE "${mpv_INCLUDE_DIRS}")
+
   target_link_libraries(
     ${PLUGIN_NAME} PRIVATE
     flutter
     PkgConfig::GTK
-    PkgConfig::mpv
     PkgConfig::epoxy
+    ${CMAKE_DL_LIBS}
   )
 else()
   message(NOTICE "media_kit: WARNING: package:media_kit_libs_*** not found.")

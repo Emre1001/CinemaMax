@@ -93,6 +93,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final _errorBtn = FocusNode(debugLabel: 'retry');
   final _stillBtn = FocusNode(debugLabel: 'still');
   bool _everPlayed = false; // Stream lief schon: Fehler sind Abbrüche, kein Format-Problem
+  bool _failed = false; // Fehlermeldung sichtbar (nicht während automatischem Neuverbinden)
   int _repeat = 0; // gehaltene Taste: Spulen beschleunigen
   late int _i = widget.index;
   late BoxFit _fit = fits[store.get('fit', 'contain')]!.$2;
@@ -135,14 +136,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return ((window - left) / countdown).clamp(0.0, 1.0);
   }
 
-  /// Knopf „Intro überspringen“ in den ersten Minuten einer Folge.
-  bool _introVisible(PlaybackState s) =>
+  /// Knopf „Intro überspringen“ möglich: in den ersten Minuten einer Folge, vor dem Sprungziel.
+  bool _introEligible(PlaybackState s) =>
       _introSkip > 0 &&
       !_introDone &&
       _cur.item.kind == Kind.series &&
       s.duration > const Duration(minutes: 10) &&
       s.position > const Duration(seconds: 3) &&
-      s.position < const Duration(minutes: 3);
+      s.position < const Duration(minutes: 3) &&
+      s.position < Duration(seconds: _introSkip);
+
+  Duration? _introFrom; // Position, ab der der Knopf sichtbar ist
+  static const _introWindow = Duration(seconds: 10);
+
+  /// Countdown des Knopfs 0..1; nach 10 s Wiedergabe verschwindet er von selbst. null = nicht sichtbar.
+  double? _introProgress(PlaybackState s) {
+    final from = _introFrom;
+    if (from == null || !_introEligible(s)) return null;
+    final t = (s.position - from).inMilliseconds / _introWindow.inMilliseconds;
+    return t < 0 || t >= 1 ? null : t;
+  }
+
+  bool _introVisible(PlaybackState s) => _introProgress(s) != null;
 
   @override
   void initState() {
@@ -194,7 +209,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onState() {
     final s = _e.state.value;
-    if (s.playing) {
+    if (s.playing && s.ready) {
       _retries = 0;
       _everPlayed = true;
     }
@@ -232,6 +247,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _retries++;
       _retryTimer = Timer(Duration(seconds: 1 + _retries), () => _play(_i, retry: true));
     }
+    // Fehler liegt über allem; Bedienleiste darunter nicht per Fernbedienung erreichbar
+    final failed = s.error != null && _retryTimer?.isActive != true;
+    if (failed != _failed && mounted) setState(() => _failed = failed);
+    if (_introFrom == null && _introEligible(s)) _introFrom = s.position;
     // Countdown abgelaufen: nächste Folge
     if (!_advancing && (_nextProgress(s) ?? 0) >= 1) {
       _advancing = true;
@@ -269,6 +288,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _epg = [];
         _nextDismissed = false;
         _introDone = false;
+        _introFrom = null;
         // „Ende dieser Folge“ gilt nur für die Folge, bei der er gestellt wurde
         if (_stopAtEnd) {
           _stopAtEnd = false;
@@ -1086,7 +1106,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final pip = _pip(context);
 
     return PopScope(
-      canPop: !_controls || !_tv,
+      canPop: !_controls || !_tv || _failed,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _hide();
       },
@@ -1184,17 +1204,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                     ValueListenableBuilder(
                       valueListenable: _e.state,
-                      builder: (_, s, _) => s.error != null && _retryTimer?.isActive != true
-                          ? _errorView(s.error!)
-                          : (s.buffering
-                                ? const Center(
-                                    child: SizedBox(
-                                      width: 44,
-                                      height: 44,
-                                      child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+                      builder: (_, s, _) => (s.error == null ? !s.buffering : _retryTimer?.isActive != true)
+                          ? const SizedBox.shrink()
+                          : Stack(
+                              children: [
+                                const Center(
+                                  child: SizedBox(
+                                    width: 44,
+                                    height: 44,
+                                    child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+                                  ),
+                                ),
+                                // Unterhalb des großen Play-Knopfs der Bedienleiste
+                                if (s.error != null)
+                                  Align(
+                                    alignment: const Alignment(0, .3),
+                                    child: Text(
+                                      tr('Verbinde neu … ({0}/5)', [_retries]),
+                                      style: const TextStyle(color: Colors.white70),
                                     ),
-                                  )
-                                : const SizedBox.shrink()),
+                                  ),
+                              ],
+                            ),
                     ),
                     if (_toast != null && !_controls)
                       Positioned(
@@ -1215,7 +1246,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         child: AnimatedOpacity(
                           opacity: _controls ? 1 : 0,
                           duration: store.anim * 1.5,
-                          child: ExcludeFocus(excluding: !_controls, child: _overlay(cur, now)),
+                          child: ExcludeFocus(excluding: !_controls || _failed, child: _overlay(cur, now)),
                         ),
                       ),
                     // Intro überspringen / Abspann mit nächster Folge: auch ohne Bedienleiste
@@ -1228,17 +1259,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           if (next != null) {
                             return Positioned(right: _tv ? 48 : 28, bottom: bottom, child: _nextCard(next));
                           }
-                          if (_introVisible(s)) {
+                          final intro = _introProgress(s);
+                          if (intro != null) {
                             return Positioned(
                               right: _tv ? 48 : 28,
                               bottom: bottom,
-                              child: _GhostButton(tr('Intro überspringen'), Icons.fast_forward_rounded, _skipIntro),
+                              child: _GhostButton(
+                                tr('Intro überspringen'),
+                                Icons.fast_forward_rounded,
+                                _skipIntro,
+                                progress: intro,
+                              ),
                             );
                           }
                           return const SizedBox.shrink();
                         },
                       ),
                     if (_askStill && !pip) _stillWatchingView(),
+                    // Fehler zuletzt: liegt immer vorne, auch über Bedienleiste und Abspann-Karte
+                    if (_failed && _e.state.value.error != null) _errorView(_e.state.value.error!),
                   ],
                 ),
               ),
@@ -1471,7 +1510,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  Widget _errorView(String error) => Center(
+  /// Abgedunkelt über allem; Tippen daneben schließt nichts und blendet nichts ein.
+  Widget _errorView(String error) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: () {},
+    child: ColoredBox(
+      color: Colors.black.withValues(alpha: .85),
+      child: Center(child: _errorBody(error)),
+    ),
+  );
+
+  Widget _errorBody(String error) => SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2034,7 +2084,8 @@ class _GhostButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-  const _GhostButton(this.label, this.icon, this.onTap);
+  final double? progress; // Countdown 0..1: Fläche füllt sich, danach verschwindet der Knopf
+  const _GhostButton(this.label, this.icon, this.onTap, {this.progress});
 
   @override
   Widget build(BuildContext context) => Tap(
@@ -2042,18 +2093,33 @@ class _GhostButton extends StatelessWidget {
     radius: 8,
     scale: 1.05,
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: .55),
         border: Border.all(color: Colors.white54),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
         children: [
-          Icon(icon, size: 19),
-          const SizedBox(width: 7),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          if (progress != null)
+            Positioned.fill(
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: progress,
+                child: const ColoredBox(color: Colors.white24),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 19),
+                const SizedBox(width: 7),
+                Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
         ],
       ),
     ),

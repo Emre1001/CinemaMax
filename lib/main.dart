@@ -26,7 +26,13 @@ Future<void> main(List<String> args) async {
     return true;
   };
   ErrorWidget.builder = friendlyErrorWidget;
-  MediaKit.ensureInitialized();
+  // Ohne libmpv (Linux: Paket fehlt) trotzdem starten und erklären, statt still nichts anzuzeigen
+  Object? mpvMissing;
+  try {
+    MediaKit.ensureInitialized();
+  } catch (e) {
+    mpvMissing = e;
+  }
   if (Platform.isAndroid) {
     // Alte Android-Versionen kennen ISRG Root X1 (Let's Encrypt) nicht: für Playlists/EPG nachrüsten
     try {
@@ -45,6 +51,11 @@ Future<void> main(List<String> args) async {
     } catch (_) {}
   }
   runApp(const App());
+  if (mpvMissing != null) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => reportError(
+        StateError(tr('Videowiedergabe nicht möglich: libmpv fehlt. Installieren mit: sudo apt install libmpv2')),
+        StackTrace.current));
+  }
 }
 
 class App extends StatefulWidget {
