@@ -8,6 +8,28 @@ import '../store.dart';
 import 'common.dart';
 import 'player.dart';
 
+/// Auflösung für einen Download (Speicher sparen): Einstellung oder Auswahl mit geschätzter Größe.
+/// 0 = beste, null = abgebrochen. Nur HLS hat mehrere Qualitäten; MP4/MKV liegen in einer vor.
+Future<int?> chooseDownloadQuality(BuildContext c, Source s, String url) async {
+  final pref = store.get('dlQuality', -1);
+  if (!isHls(url) || pref >= 0) return pref < 0 ? 0 : pref;
+  List<({int height, int bytes})> q;
+  try {
+    q = await hlsQualities(s, url).timeout(const Duration(seconds: 15));
+  } catch (_) {
+    return 0; // nicht prüfbar: der Download meldet den eigentlichen Fehler
+  }
+  if (q.isEmpty || !c.mounted) return 0;
+  return pick<int>(c, tr('Download-Qualität'), {
+    for (final (i, v) in q.indexed)
+      v.height: [
+        '${v.height}p',
+        if (v.bytes > 0) tr('ca. {0}', [fmtBytes(v.bytes)]),
+        if (i == 0) tr('beste'),
+      ].join(' · '),
+  });
+}
+
 /// Download-Knopf für Film/Episode: zeigt Status und steuert Laden/Pause/Löschen.
 class DownloadButton extends StatelessWidget {
   final Source source;
@@ -21,8 +43,10 @@ class DownloadButton extends StatelessWidget {
   Future<void> _tap(BuildContext c) async {
     final d = downloads.of(url);
     if (d == null) {
+      final q = await chooseDownloadQuality(c, source, url);
+      if (q == null || !c.mounted) return;
       try {
-        downloads.add(source, item, url, title);
+        downloads.add(source, item, url, title, maxHeight: q);
         toast(c, tr('Download gestartet: {0}', [title]));
       } catch (e) {
         toast(c, tr('Nicht herunterladbar: {0}', [explain(e)]));

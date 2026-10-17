@@ -13,7 +13,7 @@ import 'store.dart';
 import 'ui/common.dart';
 
 /// Installierte Version. Muss zu `version:` in pubspec.yaml passen (test/update_test.dart prüft das).
-const appVersion = '1.6.2';
+const appVersion = '1.6.3';
 const _repo = 'Emre1001/CinemaMax';
 
 typedef Release = ({String version, String page, String? asset});

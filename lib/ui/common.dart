@@ -72,7 +72,28 @@ class Tap extends StatefulWidget {
 }
 
 class _TapState extends State<Tap> {
-  bool _focus = false, _hover = false, _longFired = false, _down = false;
+  bool _focus = false, _hover = false, _longFired = false, _down = false, _autofocused = false;
+  FocusNode? _own;
+  FocusNode get _node => widget.focusNode ?? (_own ??= FocusNode());
+
+  // Autofokus nur auf der obersten Seite: Flutters eigener Autofokus holt sich den Fokus auch
+  // hinter einem offenen Dialog (z. B. Update-Hinweis, während die Liste lädt) und die
+  // Fernbedienung steuert dann etwas Unsichtbares. Sonst wartet er, bis der Dialog zu ist.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!widget.autofocus || _autofocused || !(ModalRoute.isCurrentOf(context) ?? true)) return;
+    _autofocused = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && FocusScope.of(context).focusedChild == null) _node.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _own?.dispose();
+    super.dispose();
+  }
 
   KeyEventResult _key(FocusNode _, KeyEvent e) {
     final k = e.logicalKey;
@@ -102,8 +123,7 @@ class _TapState extends State<Tap> {
     final accent = Theme.of(context).colorScheme.primary;
     final r = BorderRadius.circular(widget.radius);
     return Focus(
-      focusNode: widget.focusNode,
-      autofocus: widget.autofocus,
+      focusNode: _node,
       onKeyEvent: _key,
       onFocusChange: (v) {
         setState(() => _focus = v);

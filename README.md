@@ -90,7 +90,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 - Folgen werden zu **Staffeln** gruppiert
 - **Weiterschauen** an der letzten Stelle, nächste Folge automatisch
 - Startseite mit **Neu**, **Top bewertet**, Favoriten
-- **Downloads** von Filmen, Folgen und ganzen Staffeln, fortsetzbar
+- **Downloads** von Filmen, Folgen und ganzen Staffeln, fortsetzbar; bei HLS mit **wählbarer Auflösung** (spart Speicher, Größe wird vorher angezeigt)
 
 </td>
 <td valign="top">
@@ -115,7 +115,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 <td valign="top">
 
 ### 🕹️ Bedienung
-- **Android TV**: alles mit der Fernbedienung, eigene TV-Oberfläche
+- **Android TV**: alles mit der Fernbedienung, eigene TV-Oberfläche; Optionen per OK gedrückt halten
 - **Per Code empfangen**: Der Fernseher zeigt einen QR-Code und einen Code. Zugangsdaten (Xtream, M3U, Stalker) kommen per Handy-Kamera, aus der App eines Freundes oder über [die Webseite](https://emre1001.github.io/CinemaMax/tv/) von überall auf der Welt, Ende-zu-Ende verschlüsselt
 - **Handy**: Touch, untere Leiste, Querformat im Player
 - **PC**: Maus, Tastatur, feste Seitenleiste
