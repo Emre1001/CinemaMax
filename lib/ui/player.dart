@@ -85,7 +85,25 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver {
+  // Offene Player: Systemleisten erst wieder zeigen, wenn der letzte zu ist. Ersetzt ein Player
+  // den anderen (ExoPlayer → mpv, neue Folge per Link), räumt der alte erst danach auf.
+  static int _open = 0;
+
+  static void _immersive() {
+    if (!Platform.isAndroid) return;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (!isAndroidTv && store.get('landscape', true)) {
+      SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+    }
+  }
+
+  // Zurück aus einer anderen App oder Bild-in-Bild: Statusleiste wieder ausblenden
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _immersive();
+  }
+
   late final Engine _e = Engine.create(widget.list[widget.index].url, widget.engine);
   bool _leaving = false;
   final _root = FocusNode(debugLabel: 'player');
@@ -169,12 +187,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideTimer = Timer(Duration(seconds: store.get('hideSec', 5)), _hide);
     // Handy: beim Verlassen der App als Bild-in-Bild weiterlaufen
     if (_phone && store.get('autoPip', true)) _device.invokeMethod('autoPip', true).catchError((_) {});
-    if (Platform.isAndroid) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      if (!isAndroidTv && store.get('landscape', true)) {
-        SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
-      }
-    }
+    _open++;
+    _immersive();
+    WidgetsBinding.instance.addObserver(this);
     if (_desktop && store.get('autoFullscreen', false)) _toggleFullscreen();
     _volume = store.get('volume', 1.0).clamp(0.0, _e.maxVolume).toDouble();
     // Fernbedienung: Fokus gleich auf Play/Pause, sonst führt kein Pfeil in die Bedienleiste
@@ -199,7 +214,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _stillBtn.dispose();
     store.set('volume', _volume);
     if (_phone) _device.invokeMethod('autoPip', false).catchError((_) {});
-    if (Platform.isAndroid) {
+    WidgetsBinding.instance.removeObserver(this);
+    if (--_open == 0 && Platform.isAndroid) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       SystemChrome.setPreferredOrientations([]);
     }

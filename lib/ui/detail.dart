@@ -230,10 +230,13 @@ class _DetailScreenState extends State<DetailScreen> {
                   const SizedBox(height: 12),
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Pill(tr('Staffel {0} herunterladen', [_season]), icon: Icons.download_rounded, onTap: () {
+                    child: Pill(tr('Staffel {0} herunterladen', [_season]), icon: Icons.download_rounded, onTap: () async {
+                      // Einmal fragen, gilt für alle Folgen der Staffel
+                      final q = eps.isEmpty ? 0 : await chooseDownloadQuality(context, widget.source, eps.first.url);
+                      if (q == null || !context.mounted) return;
                       for (final e in eps) {
                         try {
-                          downloads.add(widget.source, m, e.url, '${m.name} S${e.season}E${e.number}');
+                          downloads.add(widget.source, m, e.url, '${m.name} S${e.season}E${e.number}', maxHeight: q);
                         } catch (_) {/* z. B. HLS: überspringen */}
                       }
                       toast(context, tr('{0} Folgen in der Warteschlange', [eps.length]));

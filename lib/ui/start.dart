@@ -196,7 +196,10 @@ class _StartScreenState extends State<StartScreen> {
         icon: Icons.satellite_alt_rounded,
         title: tr('IPTV'),
         text: tr('Freie Live-Sender aus aller Welt\nund eigene IPTV-Listen.'),
-        foot: tr('{0} Listen', [store.sources.where((s) => s.type == SourceType.iptv).length + 1]),
+        foot: () {
+          final n = store.sources.where((s) => s.type == SourceType.iptv).length + 1;
+          return n == 1 ? tr('1 Liste') : tr('{0} Listen', [n]);
+        }(),
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SourcesScreen(iptv: true)))
             .then((_) => setState(() {})),
       ),
@@ -204,7 +207,10 @@ class _StartScreenState extends State<StartScreen> {
         icon: Icons.dns_rounded,
         title: tr('M3U / Xtream / Stalker'),
         text: tr('Playlist, Xtream-Codes oder Stalker-Portal.\nLive, Filme und Serien.'),
-        foot: tr('{0} Server gespeichert', [store.sources.where((s) => s.type != SourceType.iptv).length]),
+        foot: () {
+          final n = store.sources.where((s) => s.type != SourceType.iptv).length;
+          return n == 1 ? tr('1 Server gespeichert') : tr('{0} Server gespeichert', [n]);
+        }(),
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SourcesScreen()))
             .then((_) => setState(() {})),
       ),
@@ -433,7 +439,11 @@ class _SourcesScreenState extends State<SourcesScreen> {
           if (list.isNotEmpty)
             Padding(
               padding: EdgeInsets.only(top: 18),
-              child: Text(tr('Lange drücken oder Menü-Taste für Optionen.'), style: TextStyle(color: textDim)),
+              child: Text(
+                  formFactor(context) == Ff.tv
+                      ? tr('OK gedrückt halten oder Menü-Taste für Optionen.')
+                      : tr('Lange drücken oder ⋮ für Optionen.'),
+                  style: TextStyle(color: textDim)),
             ),
         ],
       ),
@@ -513,7 +523,9 @@ class _SourceTileState extends State<_SourceTile> {
               ),
             ]),
           ),
-          ExcludeFocus(child: IconButton(onPressed: widget.onMenu, icon: Icon(Icons.more_vert))),
+          // Fernseher: OK gedrückt halten öffnet das Menü (ein Knopf in der Karte wäre nicht erreichbar)
+          if (formFactor(context) != Ff.tv)
+            IconButton(onPressed: widget.onMenu, tooltip: tr('Optionen'), icon: Icon(Icons.more_vert)),
         ]),
       ),
     );

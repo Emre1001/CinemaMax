@@ -87,8 +87,18 @@ class _AppState extends State<App> {
       seedColor: _accent!,
       brightness: Brightness.dark,
     ).copyWith(primary: _accent, onPrimary: store.onAccent, surface: bg, onSurface: Colors.white);
+    // Fernbedienung: gewählter Knopf in Dialogen klar sichtbar (Hervorhebung ist sonst abgeschaltet)
+    final ring = ButtonStyle(
+      side: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.focused) ? const BorderSide(color: Colors.white, width: 2.5) : null),
+    );
     return _theme = ThemeData(
       useMaterial3: true,
+      focusColor: Colors.white24,
+      textButtonTheme: TextButtonThemeData(style: ring),
+      filledButtonTheme: FilledButtonThemeData(style: ring),
+      outlinedButtonTheme: OutlinedButtonThemeData(style: ring),
+      iconButtonTheme: IconButtonThemeData(style: ring),
       colorScheme: scheme,
       scaffoldBackgroundColor: bg,
       splashFactory: NoSplash.splashFactory,
