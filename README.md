@@ -105,7 +105,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 - Fehler als verständlicher Text statt Absturz
 - **Nächste Folge** mit Countdown im Abspann, **Intro überspringen** (10 s mit Countdown), „Schaust du noch?“
 - Folgenliste mit Staffeln im Player, Ton & Untertitel in einem Fenster
-- Bildformat, Tempo bis 3x, Sleep-Timer (auch „Ende dieser Folge“), Endzeit-Anzeige
+- Bildformat (Einpassen, Original 1:1, Zoomen, Strecken, 16:9, 4:3), Tempo bis 3x, Sleep-Timer (auch „Ende dieser Folge“), Endzeit-Anzeige
 - **Externe Links**: „Öffnen mit“/„Teilen“ auf Android, Dateien/Links am PC, „Link öffnen“ im Startbildschirm
 - **Bild-in-Bild** auf dem Handy, Vollbild am PC
 
@@ -115,7 +115,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 <td valign="top">
 
 ### 🕹️ Bedienung
-- **Android TV**: alles mit der Fernbedienung, eigene TV-Oberfläche; Optionen per OK gedrückt halten
+- **Android TV**: alles mit der Fernbedienung, eigene TV-Oberfläche; Optionen über ⋮ oder OK gedrückt halten
 - **Per Code empfangen**: Der Fernseher zeigt einen QR-Code und einen Code. Zugangsdaten (Xtream, M3U, Stalker) kommen per Handy-Kamera, aus der App eines Freundes oder über [die Webseite](https://emre1001.github.io/CinemaMax/tv/) von überall auf der Welt, Ende-zu-Ende verschlüsselt
 - **Handy**: Touch, untere Leiste, Querformat im Player
 - **PC**: Maus, Tastatur, feste Seitenleiste

@@ -47,10 +47,14 @@ Future<void> resumeFromHistory(BuildContext c, Source s, String url, String titl
   await PlayerScreen.open(c, s, list, list.indexWhere((p) => p.url == url).clamp(0, list.length - 1));
 }
 
-Map<String, (String, BoxFit)> get fits => {
-  'contain': (tr('Einpassen'), BoxFit.contain),
-  'cover': (tr('Zoomen'), BoxFit.cover),
-  'fill': (tr('Strecken'), BoxFit.fill),
+/// Bildformate: Name, Einpassung und erzwungenes Seitenverhältnis (null = wie die Quelle).
+Map<String, (String, BoxFit, double?)> get fits => {
+  'contain': (tr('Einpassen'), BoxFit.contain, null),
+  'original': (tr('Original (1:1)'), BoxFit.none, null),
+  'cover': (tr('Zoomen'), BoxFit.cover, null),
+  'fill': (tr('Strecken'), BoxFit.fill, null),
+  '169': ('16:9', BoxFit.fill, 16 / 9),
+  '43': ('4:3', BoxFit.fill, 4 / 3),
 };
 
 class PlayerScreen extends StatefulWidget {
@@ -109,18 +113,24 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   final _root = FocusNode(debugLabel: 'player');
   final _playBtn = FocusNode(debugLabel: 'play');
   final _errorBtn = FocusNode(debugLabel: 'retry');
+  final _errorAlt = FocusNode(debugLabel: 'other-engine'), _errorBack = FocusNode(debugLabel: 'back');
+  final _stillBack = FocusNode(debugLabel: 'still-back');
   final _stillBtn = FocusNode(debugLabel: 'still');
   bool _everPlayed = false; // Stream lief schon: Fehler sind Abbrüche, kein Format-Problem
   bool _failed = false; // Fehlermeldung sichtbar (nicht während automatischem Neuverbinden)
   int _repeat = 0; // gehaltene Taste: Spulen beschleunigen
   late int _i = widget.index;
-  late BoxFit _fit = fits[store.get('fit', 'contain')]!.$2;
+  late String _fit = fits.containsKey(store.get('fit', 'contain')) ? store.get('fit', 'contain') : 'contain';
   bool _controls = true, _fullscreen = false, _first = true, _muted = false, _locked = false;
   double _volume = 1, _audioDelay = 0, _subDelay = 0;
   int? _lastIndex; // vorheriger Sender für „Letzter Sender“
   double? _dragSeek; // Wischen zum Spulen: Sekunden
   double? _dragZap; // Wischen zum Senderwechsel: Strecke, null = schon gewechselt
-  Timer? _hideTimer, _saveTimer, _sleepTimer, _retryTimer, _digitTimer, _toastTimer, _tapSeekTimer;
+  Timer? _hideTimer, _saveTimer, _sleepTimer, _retryTimer, _digitTimer, _toastTimer, _tapSeekTimer, _graceTimer;
+  // Vor dem Wechsel zum anderen Player so lange weiter versuchen: manche Streams brauchen ein paar Anläufe
+  static const _grace = Duration(seconds: 8);
+  var _openedAt = DateTime.now();
+  bool _graceRetried = false;
   DateTime? _sleepAt;
   int _retries = 0, _openId = 0, _tapSeek = 0;
   String _digits = '';
@@ -202,7 +212,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   @override
   void dispose() {
     _saveProgress();
-    for (final t in [_hideTimer, _saveTimer, _sleepTimer, _retryTimer, _digitTimer, _toastTimer, _tapSeekTimer]) {
+    for (final t in [_hideTimer, _saveTimer, _sleepTimer, _retryTimer, _digitTimer, _toastTimer, _tapSeekTimer, _graceTimer]) {
       t?.cancel();
     }
     _e.onCompleted = null;
@@ -211,6 +221,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _root.dispose();
     _playBtn.dispose();
     _errorBtn.dispose();
+    _errorAlt.dispose();
+    _errorBack.dispose();
+    _stillBack.dispose();
     _stillBtn.dispose();
     store.set('volume', _volume);
     if (_phone) _device.invokeMethod('autoPip', false).catchError((_) {});
@@ -229,11 +242,25 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       _retries = 0;
       _everPlayed = true;
     }
-    // Fehlerknöpfe per Fernbedienung erreichbar machen
-    if (s.error != null && _root.hasPrimaryFocus) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _errorBtn.context != null) _errorBtn.requestFocus();
-      });
+    // Vor der ersten Wiedergabe: Fehler 8 s lang nicht zeigen, sondern weiter versuchen
+    if (s.error != null && !_everPlayed) {
+      final left = _grace - DateTime.now().difference(_openedAt);
+      if (left > Duration.zero) {
+        // Noch in der Schonfrist: Fehler nicht zeigen, einmal mit demselben Player neu öffnen
+        if (_graceTimer?.isActive != true) {
+          _graceTimer = Timer(left, () {
+            if (mounted && !_everPlayed && _e.state.value.error != null) _onState();
+          });
+          if (!_graceRetried && !_cur.live) {
+            _graceRetried = true;
+            Timer(const Duration(seconds: 2), () {
+              if (mounted && !_everPlayed && _e.state.value.error != null) _play(_i, retry: true);
+            });
+          }
+          if (mounted) setState(() {});
+        }
+        return;
+      }
     }
     // Ein Player kann den Stream gar nicht öffnen (z. B. 4K-HEVC, 10 Bit, DTS): einmal den anderen versuchen
     // (Android: ExoPlayer und mpv). Abbrüche eines laufenden Streams regelt das automatische Neuverbinden.
@@ -264,8 +291,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       _retryTimer = Timer(Duration(seconds: 1 + _retries), () => _play(_i, retry: true));
     }
     // Fehler liegt über allem; Bedienleiste darunter nicht per Fernbedienung erreichbar
-    final failed = s.error != null && _retryTimer?.isActive != true;
-    if (failed != _failed && mounted) setState(() => _failed = failed);
+    final failed = s.error != null && !_waiting;
+    if (failed != _failed && mounted) {
+      setState(() => _failed = failed);
+      // Fernbedienung: Fokus in die Fehlerknöpfe, die Bedienleiste darunter ist gesperrt
+      // Kurz warten: das Sperren der Leiste (ExcludeFocus) setzt den Fokus sonst im selben Frame zurück
+      if (failed) {
+        Timer(const Duration(milliseconds: 200), () {
+          if (mounted && _failed && _errorBtn.context != null) _errorBtn.requestFocus();
+        });
+      }
+    }
     if (_introFrom == null && _introEligible(s)) _introFrom = s.position;
     // Countdown abgelaufen: nächste Folge
     if (!_advancing && (_nextProgress(s) ?? 0) >= 1) {
@@ -273,6 +309,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       _autoAdvance();
     }
   }
+
+  /// Fehler, aber es wird noch versucht (Neuverbinden oder Schonfrist vor dem Playerwechsel).
+  bool get _waiting => _retryTimer?.isActive == true || _graceTimer?.isActive == true;
 
   void _completed() {
     if (_cur.live || !mounted) return;
@@ -301,6 +340,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       _i = i;
       if (!retry) {
         _everPlayed = false;
+        _openedAt = DateTime.now();
+        _graceRetried = false;
+        _graceTimer?.cancel();
         _epg = [];
         _nextDismissed = false;
         _introDone = false;
@@ -519,15 +561,28 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (e is KeyUpEvent) return KeyEventResult.ignored;
     final k = e.logicalKey;
     final nav = _navKeys.contains(k);
-    // „Schaust du noch?“: Tasten gehören den Knöpfen
-    if (_askStill) {
-      if (nav && _root.hasPrimaryFocus) {
-        _stillBtn.requestFocus();
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.ignored;
-    }
     _autoChain = 0;
+    // Fehleranzeige und „Schaust du noch?“: Pfeile wechseln zwischen deren Knöpfen (nicht Spulen/
+    // Senderwechsel). Flutters eigene Richtungssuche findet dort keinen Nachbarn und gibt den Fokus ab.
+    final btns = _failed
+        ? [_errorBtn, if (_errorAlt.context != null) _errorAlt, _errorBack]
+        : _askStill
+        ? [_stillBtn, _stillBack]
+        : null;
+    if (_askStill && !nav) return KeyEventResult.ignored;
+    if (btns != null && nav) {
+      final i = btns.indexWhere((b) => b.hasPrimaryFocus);
+      if (i < 0) {
+        btns.first.requestFocus();
+      } else if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.arrowRight) {
+        btns[(i + (k == LogicalKeyboardKey.arrowRight ? 1 : -1)).clamp(0, btns.length - 1)].requestFocus();
+      } else if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown) {
+        // nur eine Reihe
+      } else {
+        return KeyEventResult.ignored; // OK: der Knopf selbst
+      }
+      return KeyEventResult.handled;
+    }
     // Fernbedienung: Bedienleiste oder Fehler sichtbar, aber nichts fokussiert: erst in die Knöpfe springen
     if (nav && !_desktop && _root.hasPrimaryFocus) {
       final target = _e.state.value.error != null ? _errorBtn : (_controls ? _playBtn : null);
@@ -850,7 +905,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   void _fitMenu() => _menu(() async {
     final f = await pick(context, tr('Bildformat'), {
-      for (final e in fits.entries) e.value.$2: e.value.$1,
+      for (final e in fits.entries) e.key: e.value.$1,
     }, current: _fit);
     if (f != null) setState(() => _fit = f);
   });
@@ -1190,7 +1245,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    _e.view(_fit),
+                    _video(),
                     // Nur Ton (Radio): Logo statt schwarzem Bild
                     ValueListenableBuilder(
                       valueListenable: _e.state,
@@ -1220,7 +1275,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                     ),
                     ValueListenableBuilder(
                       valueListenable: _e.state,
-                      builder: (_, s, _) => (s.error == null ? !s.buffering : _retryTimer?.isActive != true)
+                      builder: (_, s, _) => (s.error == null ? !s.buffering : !_waiting)
                           ? const SizedBox.shrink()
                           : Stack(
                               children: [
@@ -1236,7 +1291,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                                   Align(
                                     alignment: const Alignment(0, .3),
                                     child: Text(
-                                      tr('Verbinde neu … ({0}/5)', [_retries]),
+                                      _graceTimer?.isActive == true
+                                          ? tr('Versuche weiter …')
+                                          : tr('Verbinde neu … ({0}/5)', [_retries]),
                                       style: const TextStyle(color: Colors.white70),
                                     ),
                                   ),
@@ -1301,6 +1358,36 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           ),
         ),
       ),
+    );
+  }
+
+  /// Video im gewählten Bildformat.
+  Widget _video() {
+    final (_, fit, aspect) = fits[_fit]!;
+    if (aspect != null) {
+      return ColoredBox(
+        color: Colors.black,
+        child: Center(child: AspectRatio(aspectRatio: aspect, child: _e.view(BoxFit.fill))),
+      );
+    }
+    if (fit != BoxFit.none) return _e.view(fit);
+    // Original: ein Videopixel = ein Bildschirmpixel, mittig, Rand schwarz oder beschnitten
+    return ValueListenableBuilder(
+      valueListenable: _e.state,
+      builder: (context, s, _) {
+        if (s.size.isEmpty) return _e.view(BoxFit.contain);
+        final px = s.size / MediaQuery.devicePixelRatioOf(context);
+        return ColoredBox(
+          color: Colors.black,
+          child: ClipRect(
+            child: OverflowBox(
+              maxWidth: double.infinity,
+              maxHeight: double.infinity,
+              child: SizedBox(width: px.width, height: px.height, child: _e.view(BoxFit.fill)),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1430,7 +1517,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                       focusNode: _stillBtn,
                       onTap: _continueWatching,
                     ),
-                    Pill(tr('Zurück'), icon: Icons.arrow_back_rounded, onTap: () => Navigator.maybePop(context)),
+                    Pill(tr('Zurück'), icon: Icons.arrow_back_rounded, focusNode: _stillBack,
+                        onTap: () => Navigator.maybePop(context)),
                   ],
                 ),
               ],
@@ -1575,8 +1663,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
               },
             ),
             if (Platform.isAndroid)
-              Pill(_e is ExoEngine ? tr('Mit mpv versuchen') : tr('Mit ExoPlayer versuchen'), onTap: _switchEngine),
-            Pill(tr('Zurück'), icon: Icons.arrow_back_rounded, onTap: () => Navigator.maybePop(context)),
+              Pill(_e is ExoEngine ? tr('Mit mpv versuchen') : tr('Mit ExoPlayer versuchen'),
+                  focusNode: _errorAlt, onTap: _switchEngine),
+            Pill(tr('Zurück'), icon: Icons.arrow_back_rounded, focusNode: _errorBack, onTap: () => Navigator.maybePop(context)),
           ],
         ),
       ],
@@ -1781,7 +1870,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     (Icons.subtitles_rounded, tr('Ton & Untertitel'), _audioSubs),
     (Icons.high_quality_rounded, tr('Qualität'), _qualityMenu),
     if (!cur.live) (Icons.speed_rounded, '${tr('Tempo')} ${_e.rate}x', _rateMenu),
-    (Icons.aspect_ratio_rounded, fits.values.firstWhere((f) => f.$2 == _fit).$1, _fitMenu),
+    (Icons.aspect_ratio_rounded, fits[_fit]!.$1, _fitMenu),
     if (_phone) (Icons.lock_outline_rounded, tr('Sperren'), () => setState(() => _locked = true)),
     (Icons.more_horiz_rounded, tr('Mehr'), _morePanel),
   ];

@@ -397,7 +397,8 @@ class MpvEngine extends Engine {
         playing: s.playing,
         buffering: s.buffering,
         ready: _ready,
-        error: state.value.error,
+        // mpv meldet auch Fehler, von denen es sich selbst erholt: läuft es weiter, ist der Fehler weg
+        error: _ready ? null : state.value.error,
         size: Size((s.width ?? 0).toDouble(), (s.height ?? 0).toDouble()),
       );
     }
@@ -419,6 +420,7 @@ class MpvEngine extends Engine {
         if (c) onCompleted?.call();
       }),
       _p.stream.error.listen((e) {
+        _ready = false;
         state.value = PlaybackState(buffering: false, error: e);
       }),
     ]);
