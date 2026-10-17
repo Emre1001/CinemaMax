@@ -441,7 +441,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
               padding: EdgeInsets.only(top: 18),
               child: Text(
                   formFactor(context) == Ff.tv
-                      ? tr('OK gedrückt halten oder Menü-Taste für Optionen.')
+                      ? tr('⋮ oder OK gedrückt halten für Optionen.')
                       : tr('Lange drücken oder ⋮ für Optionen.'),
                   style: TextStyle(color: textDim)),
             ),
@@ -488,7 +488,10 @@ class _SourceTileState extends State<_SourceTile> {
   @override
   Widget build(BuildContext context) {
     final s = widget.source;
-    return Tap(
+    // Karte und ⋮ getrennt fokussierbar: Fernbedienung erreicht ⋮ mit Pfeil rechts
+    return Row(children: [
+      Expanded(
+        child: Tap(
       autofocus: widget.autofocus,
       onTap: widget.onTap,
       onLongPress: widget.onMenu,
@@ -523,12 +526,26 @@ class _SourceTileState extends State<_SourceTile> {
               ),
             ]),
           ),
-          // Fernseher: OK gedrückt halten öffnet das Menü (ein Knopf in der Karte wäre nicht erreichbar)
-          if (formFactor(context) != Ff.tv)
-            IconButton(onPressed: widget.onMenu, tooltip: tr('Optionen'), icon: Icon(Icons.more_vert)),
         ]),
       ),
-    );
+        ),
+      ),
+      const SizedBox(width: 8),
+      Tap(
+        onTap: widget.onMenu,
+        radius: 24,
+        scale: 1.1,
+        child: Tooltip(
+          message: tr('Optionen'),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(color: surface, borderRadius: BorderRadius.circular(24)),
+            child: Icon(Icons.more_vert),
+          ),
+        ),
+      ),
+    ]);
   }
 }
 
