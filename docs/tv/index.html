@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>An Fernseher senden · CinemaMax</title>
+  <meta name="description" content="Xtream-Codes-, M3U- oder Stalker-Zugang verschlüsselt an einen Fernseher mit CinemaMax senden, von überall.">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0A0A0B" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon-192.png">
+  <style>
+    :root {
+      --accent: #3E8BFF; --bg: #0A0A0B; --surface: #141416; --surface2: #1D1D21; --line: #2A2A30;
+      --text: #F5F5F7; --dim: #8E8E96; --ok: #3DD68C; --err: #FF6369; --radius: 16px;
+      color-scheme: dark;
+    }
+    @media (prefers-color-scheme: light) {
+      :root { --bg: #F5F5F7; --surface: #fff; --surface2: #ECECF0; --line: #DEDEE4; --text: #0B0B0D; --dim: #62626B; --ok: #12A150; --err: #D92D3A; color-scheme: light; }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body { font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+    main { max-width: 520px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 16px 40px; }
+    header { display: flex; align-items: center; gap: 10px; margin: 6px 0 26px; }
+    header img { width: 30px; height: 30px; }
+    header a { color: inherit; text-decoration: none; font-weight: 800; letter-spacing: -.3px; }
+    h1 { font-size: 30px; line-height: 1.15; letter-spacing: -.8px; margin: 0 0 8px; }
+    .lead { color: var(--dim); margin: 0 0 24px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+    .step { display: flex; align-items: center; gap: 10px; font-weight: 700; margin-bottom: 12px; }
+    .num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 13px; flex: none; }
+    label { display: block; font-size: 13px; color: var(--dim); margin: 12px 0 6px; }
+    input { width: 100%; font: inherit; color: var(--text); background: var(--surface2); border: 2px solid transparent; border-radius: 12px; padding: 12px 14px; outline: none; transition: border-color .15s; }
+    input:focus { border-color: var(--accent); }
+    input.code { font: 700 24px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 3px; text-align: center; text-transform: uppercase; }
+    .hint { font-size: 13px; color: var(--dim); margin-top: 8px; min-height: 1.2em; }
+    .hint.ok { color: var(--ok); }
+    .hint.err { color: var(--err); }
+    .msg { margin: 0 0 12px; }
+    .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: var(--surface2); padding: 4px; border-radius: 12px; }
+    .seg button { font: 600 14px system-ui, sans-serif; color: var(--dim); background: none; border: 0; border-radius: 9px; padding: 10px 4px; cursor: pointer; }
+    .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+    .pw { position: relative; }
+    .pw button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; color: var(--dim); font: 600 13px system-ui; padding: 8px; cursor: pointer; }
+    .send { width: 100%; font: 700 17px system-ui, sans-serif; color: #fff; background: var(--accent); border: 0; border-radius: 14px; padding: 15px; cursor: pointer; transition: transform .1s, opacity .15s; }
+    .send:active { transform: scale(.98); }
+    .send:disabled { opacity: .5; cursor: default; }
+    ol.status { list-style: none; padding: 0; margin: 16px 0 0; }
+    ol.status li { display: flex; gap: 10px; align-items: center; padding: 6px 0; color: var(--dim); }
+    ol.status li .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); flex: none; display: grid; place-items: center; font-size: 11px; }
+    ol.status li.busy .dot { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+    ol.status li.done { color: var(--text); }
+    ol.status li.done .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+    ol.status li.fail { color: var(--err); }
+    ol.status li.fail .dot { background: var(--err); border-color: var(--err); color: #fff; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .note { display: flex; gap: 8px; font-size: 13px; color: var(--dim); margin-top: 18px; }
+    .hidden { display: none; }
+    footer { text-align: center; font-size: 13px; color: var(--dim); margin-top: 28px; }
+    footer a { color: var(--dim); }
+  </style>
+</head>
+<body>
+<main>
+  <header><img src="../assets/logo.svg" alt=""><a href="../">CinemaMax</a></header>
+
+  <h1 data-t="title">An Fernseher senden</h1>
+  <p class="lead" data-t="lead">Zugangsdaten in Sekunden auf einen Fernseher bringen, auch zu Freunden in einem anderen Land. Ohne Tippen mit der Fernbedienung.</p>
+
+  <form id="form" autocomplete="off" novalidate>
+    <section class="card">
+      <div class="step"><span class="num">1</span><span data-t="s1">Code vom Fernseher</span></div>
+      <input id="code" class="code" inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="11" placeholder="K7M2Q-9XR4T" aria-label="Code">
+      <div id="codeHint" class="hint" data-t="codeHint">Am Fernseher: Server hinzufügen → Per Code empfangen.</div>
+    </section>
+
+    <section class="card">
+      <div class="step"><span class="num">2</span><span data-t="s2">Zugang</span></div>
+      <div class="seg" role="group">
+        <button type="button" data-type="xtream" aria-pressed="true">Xtream</button>
+        <button type="button" data-type="m3u" aria-pressed="false">M3U</button>
+        <button type="button" data-type="stalker" aria-pressed="false">Stalker</button>
+      </div>
+      <label for="url" id="urlLabel">Server-URL</label>
+      <input id="url" type="url" inputmode="url" spellcheck="false" autocapitalize="off" placeholder="http://server.tv:8080">
+      <div class="f-xtream">
+        <label for="user" data-t="user">Benutzername</label>
+        <input id="user" spellcheck="false" autocapitalize="off">
+        <label for="pass" data-t="pass">Passwort</label>
+        <div class="pw"><input id="pass" type="password" spellcheck="false" autocapitalize="off"><button type="button" id="show" data-t="show">Zeigen</button></div>
+      </div>
+      <div class="f-stalker hidden">
+        <label for="mac" data-t="mac">MAC-Adresse</label>
+        <input id="mac" spellcheck="false" autocapitalize="characters" placeholder="00:1A:79:XX:XX:XX">
+      </div>
+      <label for="name" data-t="name">Name (optional)</label>
+      <input id="name" placeholder="Mein IPTV">
+    </section>
+
+    <div id="msg" class="hint msg" role="alert"></div>
+    <button class="send" id="send" type="submit" data-t="send">An Fernseher senden</button>
+
+    <ol class="status hidden" id="status">
+      <li data-s="seal"><span class="dot"></span><span data-t="st1">Verschlüsselt</span></li>
+      <li data-s="sent"><span class="dot"></span><span data-t="st2">Gesendet</span></li>
+      <li data-s="received"><span class="dot"></span><span data-t="st3">Am Fernseher angekommen</span></li>
+      <li data-s="ok"><span class="dot"></span><span data-t="st4">Fernseher verbunden</span></li>
+    </ol>
+  </form>
+
+  <p class="note"><span aria-hidden="true">🔒</span><span data-t="note">Ende-zu-Ende verschlüsselt. Die Daten werden auf diesem Gerät mit dem Code verschlüsselt und nur so über den Vermittler (ntfy.sh) übertragen. Der Code selbst verlässt dieses Gerät nie.</span></p>
+  <footer><a href="../" data-t="home">CinemaMax herunterladen</a></footer>
+</main>
+
+<script type="module">
+  import { link, normalize } from './tvlink.js';
+
+  const T = {
+    en: {
+      title: 'Send to TV', lead: 'Get a login onto a TV in seconds, even to friends in another country. No typing with the remote.',
+      s1: 'Code from the TV', codeHint: 'On the TV: Add server → Receive with code.', s2: 'Login', user: 'Username', pass: 'Password',
+      show: 'Show', hide: 'Hide', mac: 'MAC address', name: 'Name (optional)', send: 'Send to TV', st1: 'Encrypted', st2: 'Sent',
+      st3: 'Arrived on the TV', st4: 'TV connected', home: 'Download CinemaMax', url: 'Server URL', m3u: 'M3U link', portal: 'Portal URL',
+      note: 'End-to-end encrypted. The data is encrypted on this device with the code and only sent like that through the relay (ntfy.sh). The code itself never leaves this device.',
+      fromQr: 'Code taken from the QR code ✓', badCode: 'The code has 10 characters, e.g. K7M2Q-9XR4T.', needUrl: 'Please enter the address.',
+      noAnswer: 'No answer from the TV. Is the code still shown there?', tvSays: 'The TV reports: ', gotXtream: 'Xtream login found in the link ✓',
+      badMac: 'MAC address looks wrong (00:1A:79:XX:XX:XX).',
+    },
+    tr: {
+      title: 'Televizyona gönder', lead: 'Girişi saniyeler içinde bir televizyona aktar, başka ülkedeki arkadaşlara bile. Kumandayla yazmadan.',
+      s1: 'Televizyondaki kod', codeHint: 'Televizyonda: Sunucu ekle → Kodla al.', s2: 'Giriş', user: 'Kullanıcı adı', pass: 'Şifre',
+      show: 'Göster', hide: 'Gizle', mac: 'MAC adresi', name: 'Ad (isteğe bağlı)', send: 'Televizyona gönder', st1: 'Şifrelendi', st2: 'Gönderildi',
+      st3: 'Televizyona ulaştı', st4: 'Televizyon bağlandı', home: 'CinemaMax indir', url: 'Sunucu URL', m3u: 'M3U bağlantısı', portal: 'Portal URL',
+      note: 'Uçtan uca şifreli. Veriler bu cihazda kodla şifrelenir ve aracı (ntfy.sh) üzerinden yalnızca şifreli gönderilir. Kodun kendisi bu cihazdan asla çıkmaz.',
+      fromQr: 'Kod QR koddan alındı ✓', badCode: 'Kod 10 karakterden oluşur, ör. K7M2Q-9XR4T.', needUrl: 'Lütfen adresi gir.',
+      noAnswer: 'Televizyondan yanıt yok. Kod hâlâ ekranda mı?', tvSays: 'Televizyon bildiriyor: ', gotXtream: 'Bağlantıda Xtream girişi bulundu ✓',
+      badMac: 'MAC adresi hatalı görünüyor (00:1A:79:XX:XX:XX).',
+    },
+    de: {
+      st1: 'Verschlüsselt', st2: 'Gesendet', st3: 'Am Fernseher angekommen', st4: 'Fernseher verbunden',
+      show: 'Zeigen', hide: 'Verbergen', url: 'Server-URL', m3u: 'M3U-Link', portal: 'Portal-URL',
+      fromQr: 'Code aus dem QR-Code übernommen ✓', badCode: 'Der Code hat 10 Zeichen, z. B. K7M2Q-9XR4T.', needUrl: 'Bitte die Adresse eingeben.',
+      noAnswer: 'Keine Antwort vom Fernseher. Ist der Code dort noch zu sehen?', tvSays: 'Der Fernseher meldet: ', gotXtream: 'Xtream-Zugang im Link erkannt ✓',
+      badMac: 'MAC-Adresse sieht falsch aus (00:1A:79:XX:XX:XX).',
+    },
+  };
+  const lang = (navigator.language || 'de').slice(0, 2);
+  const L = lang === 'de' ? T.de : (T[lang] || T.en);
+  if (lang !== 'de') {
+    document.documentElement.lang = T[lang] ? lang : 'en';
+    document.querySelectorAll('[data-t]').forEach((el) => { if (L[el.dataset.t]) el.textContent = L[el.dataset.t]; });
+    document.title = L.title + ' · CinemaMax';
+  }
+  const t = (k) => L[k] ?? T.de[k];
+
+  const $ = (id) => document.getElementById(id);
+  const code = $('code'), hint = $('codeHint');
+  /** Meldung über dem Senden-Knopf; ok = grün, sonst rot. */
+  function say(text, ok = false) { $('msg').textContent = text; $('msg').className = 'hint msg ' + (ok ? 'ok' : 'err'); }
+  let type = 'xtream';
+
+  // Code aus dem QR-Link („…/tv/#K7M2Q9XR4T“) übernehmen und aus dem Verlauf entfernen
+  const fromHash = normalize(location.hash.slice(1));
+  if (fromHash) {
+    code.value = fromHash.slice(0, 5) + '-' + fromHash.slice(5);
+    hint.textContent = t('fromQr');
+    hint.classList.add('ok');
+    history.replaceState(null, '', location.pathname);
+  }
+  code.addEventListener('input', () => {
+    const raw = code.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 10);
+    code.value = raw.length > 5 ? raw.slice(0, 5) + '-' + raw.slice(5) : raw;
+    hint.classList.remove('ok');
+  });
+
+  function setType(next) {
+    type = next;
+    document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.type === type));
+    document.querySelector('.f-xtream').classList.toggle('hidden', type !== 'xtream');
+    document.querySelector('.f-stalker').classList.toggle('hidden', type !== 'stalker');
+    $('urlLabel').textContent = t(type === 'xtream' ? 'url' : type === 'm3u' ? 'm3u' : 'portal');
+    $('url').placeholder = { xtream: 'http://server.tv:8080', m3u: 'http://server.tv/get.php?username=…', stalker: 'http://portal.tv/c/' }[type];
+  }
+  document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => setType(b.dataset.type)));
+  setType('xtream');
+
+  // Eingefügter get.php-/player_api.php-Link: Felder für Xtream ausfüllen
+  $('url').addEventListener('input', () => {
+    try {
+      const u = new URL($('url').value.trim());
+      const file = u.pathname.split('/').pop();
+      if ((file === 'get.php' || file === 'player_api.php') && u.searchParams.get('username')) {
+        $('user').value = u.searchParams.get('username');
+        $('pass').value = u.searchParams.get('password') || '';
+        $('url').value = u.origin + u.pathname.slice(0, u.pathname.lastIndexOf('/'));
+        setType('xtream');
+        say(t('gotXtream'), true);
+      }
+    } catch { /* noch keine vollständige Adresse */ }
+  });
+  $('show').addEventListener('click', () => {
+    const p = $('pass');
+    p.type = p.type === 'password' ? 'text' : 'password';
+    $('show').textContent = t(p.type === 'password' ? 'show' : 'hide');
+  });
+
+  const steps = ['seal', 'sent', 'received', 'ok'];
+  function progress(done, failText) {
+    $('status').classList.remove('hidden');
+    document.querySelectorAll('#status li').forEach((li) => {
+      const i = steps.indexOf(li.dataset.s), d = steps.indexOf(done);
+      li.className = i <= d ? 'done' : i === d + 1 ? (failText ? 'fail' : 'busy') : '';
+      li.querySelector('.dot').textContent = i <= d ? '✓' : i === d + 1 && failText ? '!' : '';
+      if (i === d + 1 && failText) li.lastElementChild.textContent = failText;
+    });
+  }
+  function resetSteps() {
+    document.querySelectorAll('#status li').forEach((li, i) => { li.lastElementChild.textContent = t('st' + (i + 1)); });
+  }
+
+  let stop = null, timer = null;
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const c = normalize(code.value);
+    if (!c) { say(t('badCode')); code.focus(); return; }
+    let url = $('url').value.trim();
+    if (!url) { say(t('needUrl')); $('url').focus(); return; }
+    if (!/^[a-z]+:\/\//i.test(url)) url = 'http://' + url;
+    const mac = $('mac').value.trim().toUpperCase();
+    if (type === 'stalker' && mac.replace(/[^0-9A-F]/g, '').length !== 12) { say(t('badMac')); $('mac').focus(); return; }
+    say('');
+
+    $('send').disabled = true;
+    finished = false;
+    stop?.(); clearTimeout(timer); resetSteps();
+    progress('', null);
+    try {
+      const l = await link(c);
+      progress('seal', null);
+      // Erst zuhören, dann senden: keine Rückmeldung verpassen
+      stop = l.listen((m) => {
+        if (m.k !== 'status') return;
+        // Reihenfolge beim Relay nicht garantiert: nie zurückspringen
+        if (m.state === 'received') { if (!finished) progress('received', null); }
+        else if (m.state === 'ok') { progress('ok', null); finish(); }
+        else { progress('received', t('tvSays') + (m.text || '')); finish(); }
+      });
+      await l.send({
+        k: 'server', type, url, name: $('name').value.trim(),
+        user: type === 'xtream' ? $('user').value.trim() : '', pass: type === 'xtream' ? $('pass').value : '',
+        mac: type === 'stalker' ? mac : '',
+      });
+      progress('sent', null);
+      timer = setTimeout(() => {
+        if (!document.querySelector('#status li[data-s="received"]').classList.contains('done')) {
+          progress('sent', t('noAnswer'));
+          finish();
+        }
+      }, 40000);
+    } catch (err) {
+      progress('', String(err.message || err));
+      finish();
+    }
+  });
+  let finished = false;
+  function finish() { finished = true; clearTimeout(timer); $('send').disabled = false; }
+</script>
+</body>
+</html>

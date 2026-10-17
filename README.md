@@ -116,7 +116,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 
 ### 🕹️ Bedienung
 - **Android TV**: alles mit der Fernbedienung, eigene TV-Oberfläche
-- **Mit dem Handy eingeben**: Server-Daten im Handy-Browser tippen statt mit der Fernbedienung (gleiches WLAN)
+- **Per Code empfangen**: Der Fernseher zeigt einen QR-Code und einen Code. Zugangsdaten (Xtream, M3U, Stalker) kommen per Handy-Kamera, aus der App eines Freundes oder über [die Webseite](https://emre1001.github.io/CinemaMax/tv/) von überall auf der Welt, Ende-zu-Ende verschlüsselt
 - **Handy**: Touch, untere Leiste, Querformat im Player
 - **PC**: Maus, Tastatur, feste Seitenleiste
 - Die Oberfläche erkennt das Gerät selbst
