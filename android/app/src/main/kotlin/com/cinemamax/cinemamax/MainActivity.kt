@@ -14,12 +14,23 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
+private const val EXTERNAL_REQUEST = 4711
+
+/// Unterstützte externe Player und ihre Pakete (MX Player: Pro vor der kostenlosen Version).
+private val EXTERNAL = mapOf(
+    "vlc" to listOf("org.videolan.vlc"),
+    "mx" to listOf("com.mxtech.videoplayer.pro", "com.mxtech.videoplayer.ad"),
+)
+
 class MainActivity : FlutterActivity() {
     // Vom Player gesetzt: beim Verlassen der App automatisch Bild-in-Bild
     private var autoPip = false
 
     // Externer Link (Öffnen mit / Teilen), bis Flutter ihn abholt
     private var pendingLink: String? = null
+
+    // Externer Player (VLC, MX Player) läuft: Antwort mit Position, sobald er zurückkehrt
+    private var externalResult: MethodChannel.Result? = null
     private var channel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,6 +104,8 @@ class MainActivity : FlutterActivity() {
                             packageManager.hasSystemFeature("android.software.leanback")
                     )
                 }
+                "externalPlayers" -> result.success(EXTERNAL.filterValues { pkgs -> pkgs.any(::installed) }.keys.toList())
+                "playExternal" -> playExternal(call, result)
                 "pipSupported" -> result.success(pipSupported())
                 "pip" -> result.success(enterPip())
                 "autoPip" -> {
@@ -102,6 +115,60 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun installed(pkg: String) = try {
+        packageManager.getPackageInfo(pkg, 0)
+        true
+    } catch (e: PackageManager.NameNotFoundException) {
+        false
+    }
+
+    /// Stream in VLC oder MX Player öffnen. Ergebnis: {position, duration} in ms, sobald der Player zurückkehrt.
+    private fun playExternal(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
+        val player = call.argument<String>("player") ?: ""
+        val pkg = EXTERNAL[player]?.firstOrNull(::installed)
+            ?: return result.error("missing", player, null)
+        val url = call.argument<String>("url") ?: ""
+        val title = call.argument<String>("title") ?: ""
+        val position = call.argument<Number>("position")?.toLong() ?: 0L
+        val headers = call.argument<Map<String, String>>("headers") ?: emptyMap()
+        // Heruntergeladene Datei: nur diese eine Datei freigeben
+        val uri = if (url.startsWith("/")) FileProvider.getUriForFile(this, "$packageName.files", java.io.File(url)) else Uri.parse(url)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setPackage(pkg)
+            setDataAndType(uri, "video/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra("title", title)
+            if (player == "vlc") {
+                // shortcut: VLC nimmt keine HTTP-Header per Intent an, Streams mit Pflicht-User-Agent dann in MX Player
+                putExtra("from_start", position == 0L)
+                if (position > 0) putExtra("position", position)
+            } else {
+                putExtra("return_result", true)
+                if (position > 0) putExtra("position", position.toInt())
+                if (headers.isNotEmpty()) putExtra("headers", headers.flatMap { listOf(it.key, it.value) }.toTypedArray())
+            }
+        }
+        externalResult?.success(null)
+        externalResult = result
+        try {
+            startActivityForResult(intent, EXTERNAL_REQUEST)
+        } catch (e: Exception) {
+            externalResult = null
+            result.error("start", e.message, null)
+        }
+    }
+
+    @Deprecated("Ergebnis der externen Player")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != EXTERNAL_REQUEST) return
+        val x = data?.extras
+        // VLC: extra_position/extra_duration (Long), MX Player: position/duration (Int)
+        fun ms(vararg keys: String) = keys.firstNotNullOfOrNull { k -> (x?.get(k) as? Number)?.toLong() } ?: 0L
+        externalResult?.success(mapOf("position" to ms("extra_position", "position"), "duration" to ms("extra_duration", "duration")))
+        externalResult = null
     }
 
     private fun pipSupported() =

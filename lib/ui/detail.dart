@@ -277,49 +277,54 @@ class _EpisodeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = store.progressOf(e.url);
     final wide = isWide(context);
+    // Download-Knopf neben der Zeile, nicht darin: so erreicht ihn die Fernbedienung mit Pfeil rechts
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Tap(
-        onTap: onTap,
-        fill: true,
-        scale: 1.01,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(children: [
-            SizedBox(
-              width: wide ? 200 : 132,
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Stack(fit: StackFit.expand, children: [
-                    Artwork(e.image ?? fallback, '${e.number}', width: 200),
-                    if (p > 0)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: LinearProgressIndicator(value: p, minHeight: 3, color: store.accent, backgroundColor: Colors.black54),
-                      ),
+      child: Row(children: [
+        Expanded(
+          child: Tap(
+            onTap: onTap,
+            fill: true,
+            scale: 1.01,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Row(children: [
+                SizedBox(
+                  width: wide ? 200 : 132,
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Stack(fit: StackFit.expand, children: [
+                        Artwork(e.image ?? fallback, '${e.number}', width: 200),
+                        if (p > 0)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: LinearProgressIndicator(value: p, minHeight: 3, color: store.accent, backgroundColor: Colors.black54),
+                          ),
+                      ]),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${e.number}. ${e.title}',
+                        maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                    if (e.plot != null) ...[
+                      const SizedBox(height: 4),
+                      Text(e.plot!, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim, fontSize: 13)),
+                    ],
                   ]),
                 ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${e.number}. ${e.title}',
-                    maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                if (e.plot != null) ...[
-                  const SizedBox(height: 4),
-                  Text(e.plot!, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim, fontSize: 13)),
-                ],
               ]),
             ),
-            ?trailing,
-          ]),
+          ),
         ),
-      ),
+        if (trailing != null) ...[const SizedBox(width: 6), trailing!],
+      ]),
     );
   }
 }

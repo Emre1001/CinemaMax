@@ -88,6 +88,9 @@ final _cats = <_Cat>[
         hint: 'ExoPlayer: schnell und stabil. mpv: mehr Formate und Untertitel',
         options: {'exo': 'ExoPlayer (empfohlen)', 'mpv': 'mpv'},
         visible: () => Platform.isAndroid),
+    _Opt('extPlayer', 'Externer Player', '',
+        hint: 'Alles in VLC oder MX Player abspielen (muss installiert sein). Einzeln: im Player unter „Mehr“',
+        options: {'': 'Aus (eingebauter Player)', 'vlc': 'VLC', if (Platform.isAndroid) 'mx': 'MX Player'}),
     _Opt('autoMpv', 'Bei Fehlern anderen Player versuchen', true,
         hint: 'ExoPlayer und mpv springen füreinander ein (z. B. bei 4K oder DTS-Ton)',
         visible: () => Platform.isAndroid),
@@ -214,6 +217,27 @@ class SettingsBody extends StatefulWidget {
 
 class _SettingsBodyState extends State<SettingsBody> {
   int _sel = 0;
+  // Fernbedienung: Pfeil rechts springt in die erste Option, Pfeil links zurück zur gewählten Kategorie.
+  // Flutter würde sonst nach Höhe die Kategorie daneben wählen und dabei den Inhalt wechseln.
+  final _catNodes = [for (final _ in _cats) FocusNode()];
+  final _first = FocusNode();
+
+  @override
+  void dispose() {
+    for (final n in _catNodes) {
+      n.dispose();
+    }
+    _first.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _jump(KeyEvent e, LogicalKeyboardKey key, FocusNode Function() target) {
+    if (e is KeyUpEvent || e.logicalKey != key) return KeyEventResult.ignored;
+    final t = target();
+    if (t.context == null) return KeyEventResult.ignored;
+    t.requestFocus();
+    return KeyEventResult.handled;
+  }
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -222,9 +246,24 @@ class _SettingsBodyState extends State<SettingsBody> {
           // Schmal (Handy): Kategorien als Liste, Inhalt auf eigener Seite
           if (box.maxWidth < 760) return _catList(context, narrow: true);
           return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(width: 360, child: FocusTraversalGroup(child: _catList(context, narrow: false))),
+            SizedBox(
+              width: 360,
+              child: Focus(
+                canRequestFocus: false,
+                skipTraversal: true,
+                onKeyEvent: (_, e) => _jump(e, LogicalKeyboardKey.arrowRight, () => _first),
+                child: FocusTraversalGroup(child: _catList(context, narrow: false)),
+              ),
+            ),
             const VerticalDivider(width: 1, color: Colors.white10),
-            Expanded(child: FocusTraversalGroup(child: _CatBody(_cats[_sel], key: ValueKey(_sel)))),
+            Expanded(
+              child: Focus(
+                canRequestFocus: false,
+                skipTraversal: true,
+                onKeyEvent: (_, e) => _jump(e, LogicalKeyboardKey.arrowLeft, () => _catNodes[_sel]),
+                child: FocusTraversalGroup(child: _CatBody(_cats[_sel], first: _first, key: ValueKey(_sel))),
+              ),
+            ),
           ]);
         }),
       );
@@ -239,6 +278,7 @@ class _SettingsBodyState extends State<SettingsBody> {
                 fill: true,
                 scale: 1,
                 autofocus: i == 0,
+                focusNode: narrow ? null : _catNodes[i],
                 // Fernbedienung/Tastatur: Kategorie beim Darüberfahren rechts zeigen
                 onFocus: narrow ? null : (f) => f && _sel != i ? setState(() => _sel = i) : null,
                 onTap: narrow
@@ -295,7 +335,8 @@ class _CatPage extends StatelessWidget {
 /// Einträge einer Kategorie.
 class _CatBody extends StatelessWidget {
   final _Cat cat;
-  const _CatBody(this.cat, {super.key});
+  final FocusNode? first; // Fokusziel für Pfeil rechts aus der Kategorienliste
+  const _CatBody(this.cat, {this.first, super.key});
 
   @override
   Widget build(BuildContext context) => Align(
@@ -306,10 +347,11 @@ class _CatBody extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
             children: [
               SectionTitle(tr(cat.title)),
-              for (final it in cat.items)
-                if (it is _Opt && (it.visible?.call() ?? true))
+              for (final (i, it) in cat.items.where((it) => it is! _Opt || (it.visible?.call() ?? true)).indexed)
+                if (it is _Opt)
                   _row(
                     context,
+                    focusNode: i == 0 ? first : null,
                     tr(it.label),
                     it.hint == null ? null : tr(it.hint!),
                     value: it.options == null
@@ -321,7 +363,10 @@ class _CatBody extends StatelessWidget {
                     onTap: () => _change(context, it),
                   )
                 else if (it is _Act)
-                  _row(context, tr(it.label), it.hint?.call(), toggle: it.toggle?.call(), onTap: () => _action(context, it.key)),
+                  _row(context, tr(it.label), it.hint?.call(),
+                      focusNode: i == 0 ? first : null,
+                      toggle: it.toggle?.call(),
+                      onTap: () => _action(context, it.key)),
             ],
           ),
         ),
@@ -424,13 +469,19 @@ Future<void> _action(BuildContext c, String what) async {
 }
 
 Widget _row(BuildContext c, String label, String? hint,
-        {String? value, bool? toggle, Color? color, bool autofocus = false, required VoidCallback onTap}) =>
+        {String? value,
+        bool? toggle,
+        Color? color,
+        bool autofocus = false,
+        FocusNode? focusNode,
+        required VoidCallback onTap}) =>
     Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Tap(
         fill: true,
         scale: 1,
         autofocus: autofocus,
+        focusNode: focusNode,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

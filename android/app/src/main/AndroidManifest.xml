@@ -110,6 +110,10 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- Externe Player: prüfen, ob installiert (Android 11+) -->
+        <package android:name="org.videolan.vlc"/>
+        <package android:name="com.mxtech.videoplayer.ad"/>
+        <package android:name="com.mxtech.videoplayer.pro"/>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

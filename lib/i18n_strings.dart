@@ -511,6 +511,11 @@ const strings = <String, Map<String, String>>{
     'Startbildschirm, Animation, Updates': 'Start screen, animation, updates',
     'Versuche weiter …': 'Still trying …',
     '⋮ oder OK gedrückt halten für Optionen.': '⋮ or hold OK for options.',
+    'Alles in VLC oder MX Player abspielen (muss installiert sein). Einzeln: im Player unter „Mehr“': 'Play everything in VLC or MX Player (must be installed). For single streams: in the player under “More”',
+    'Aus (eingebauter Player)': 'Off (built-in player)',
+    'Externer Player': 'External player',
+    'In {0} öffnen': 'Open in {0}',
+    '{0} ist nicht installiert. Es wird der eingebaute Player genutzt.': '{0} is not installed. Using the built-in player.',
   },
   'tr': {
     'Was läuft, Rückschau': 'Ne oynuyor, geriye dönük izleme',
@@ -1023,5 +1028,10 @@ const strings = <String, Map<String, String>>{
     'Startbildschirm, Animation, Updates': 'Başlangıç ekranı, animasyon, güncellemeler',
     'Versuche weiter …': 'Denemeye devam ediliyor …',
     '⋮ oder OK gedrückt halten für Optionen.': 'Seçenekler için ⋮ veya OK\'u basılı tut.',
+    'Alles in VLC oder MX Player abspielen (muss installiert sein). Einzeln: im Player unter „Mehr“': 'Her şeyi VLC veya MX Player\'da oynat (yüklü olmalı). Tek tek: oynatıcıda “Daha fazla” altında',
+    'Aus (eingebauter Player)': 'Kapalı (dahili oynatıcı)',
+    'Externer Player': 'Harici oynatıcı',
+    'In {0} öffnen': '{0} ile aç',
+    '{0} ist nicht installiert. Es wird der eingebaute Player genutzt.': '{0} yüklü değil. Dahili oynatıcı kullanılıyor.',
   },
 };
