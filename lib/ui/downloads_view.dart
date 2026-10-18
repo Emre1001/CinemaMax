@@ -140,9 +140,12 @@ class DownloadsView extends StatelessWidget {
               ]),
               SizedBox(height: 12),
               for (final (i, d) in list.indexed)
+                // Download-Knopf (Pause/Löschen) neben der Zeile: per Fernbedienung mit Pfeil rechts erreichbar
                 Padding(
                   padding: EdgeInsets.only(bottom: 8),
-                  child: Tap(
+                  child: Row(children: [
+                    Expanded(
+                      child: Tap(
                     fill: true,
                     scale: 1.01,
                     autofocus: i == 0,
@@ -179,10 +182,13 @@ class DownloadsView extends StatelessWidget {
                         ),
                         SizedBox(width: 8),
                         if (d.status == DlStatus.done) Icon(Icons.play_circle_fill_rounded, color: store.accent, size: 30),
-                        DownloadButton(source: Source(id: d.srcId, name: '', type: SourceType.m3u, url: ''), item: d.item, url: d.url, title: d.title, compact: true),
                       ]),
                     ),
-                  ),
+                      ),
+                    ),
+                    SizedBox(width: 6),
+                    DownloadButton(source: Source(id: d.srcId, name: '', type: SourceType.m3u, url: ''), item: d.item, url: d.url, title: d.title, compact: true),
+                  ]),
                 ),
             ],
           );

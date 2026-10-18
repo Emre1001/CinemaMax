@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Nur der Update-Ordner im Cache wird für den Installer freigegeben -->
+<!-- Update-Ordner für den Installer; Downloads (app_flutter) für externe Player, je Datei freigegeben -->
 <paths>
     <cache-path name="updates" path="updates/"/>
+    <root-path name="downloads" path="."/>
 </paths>

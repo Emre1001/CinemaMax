@@ -11,6 +11,7 @@ import '../downloads.dart';
 import '../epg.dart';
 import '../i18n.dart';
 import '../errors.dart';
+import '../external_player.dart';
 import '../models.dart';
 import '../playback.dart';
 import '../repo.dart';
@@ -57,6 +58,33 @@ Map<String, (String, BoxFit, double?)> get fits => {
   '43': ('4:3', BoxFit.fill, 4 / 3),
 };
 
+/// Eintrag in VLC/MX Player abspielen; Position fürs Weiterschauen kommt zurück (Android).
+/// false = Player fehlt oder Link nicht auflösbar (Meldung wurde gezeigt).
+Future<bool> playExternal(BuildContext c, Source s, PlayItem item, String player,
+    {bool fromStart = false, Duration? start}) async {
+  var url = downloads.localFile(item.url) ?? item.url;
+  try {
+    if (url.startsWith('stalker:')) url = await Repo.stalkerResolve(s, url);
+    final (clean, headers) = Engine.splitHeaders(url, Repo.streamHeaders(s));
+    if (item.live) store.addRecentLive(s, item.item);
+    start ??= !item.live && store.get('resume', true) && !fromStart ? store.resumeAt(item.url) : null;
+    final r = await ExternalPlayer.play(player, clean, headers, item.title, start: start);
+    if (r != null && !item.live && r.duration > Duration.zero) {
+      store.saveProgress(s, item.item, item.url, item.title, r.position, r.duration);
+    }
+    return true;
+  } on PlatformException catch (e) {
+    if (c.mounted) {
+      toast(c, e.code == 'missing'
+          ? tr('{0} ist nicht installiert. Es wird der eingebaute Player genutzt.', [ExternalPlayer.names[player] ?? player])
+          : tr('Fehler: {0}', [explain(e)]));
+    }
+  } catch (e) {
+    if (c.mounted) toast(c, tr('Fehler: {0}', [explain(e)]));
+  }
+  return false;
+}
+
 class PlayerScreen extends StatefulWidget {
   final Source source;
   final List<PlayItem> list;
@@ -76,14 +104,19 @@ class PlayerScreen extends StatefulWidget {
   /// Routenname, damit externe Links einen laufenden Player ersetzen können.
   static const route = 'player';
 
-  static Future<void> open(BuildContext c, Source s, List<PlayItem> list, int index, {bool fromStart = false}) =>
-      Navigator.push(
-        c,
-        MaterialPageRoute(
-          settings: const RouteSettings(name: route),
-          builder: (_) => PlayerScreen(source: s, list: list, index: index, fromStart: fromStart),
-        ),
-      );
+  static Future<void> open(BuildContext c, Source s, List<PlayItem> list, int index, {bool fromStart = false}) async {
+    // Externer Player gewählt (Einstellungen → Player): dort abspielen, bei Fehlern doch hier
+    final ext = store.get('extPlayer', '');
+    if (ext.isNotEmpty && await playExternal(c, s, list[index], ext, fromStart: fromStart)) return;
+    if (!c.mounted) return;
+    await Navigator.push(
+      c,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: route),
+        builder: (_) => PlayerScreen(source: s, list: list, index: index, fromStart: fromStart),
+      ),
+    );
+  }
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -115,6 +148,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   final _errorBtn = FocusNode(debugLabel: 'retry');
   final _errorAlt = FocusNode(debugLabel: 'other-engine'), _errorBack = FocusNode(debugLabel: 'back');
   final _stillBack = FocusNode(debugLabel: 'still-back');
+  final _errorExt = [FocusNode(debugLabel: 'ext-1'), FocusNode(debugLabel: 'ext-2')];
   final _stillBtn = FocusNode(debugLabel: 'still');
   bool _everPlayed = false; // Stream lief schon: Fehler sind Abbrüche, kein Format-Problem
   bool _failed = false; // Fehlermeldung sichtbar (nicht während automatischem Neuverbinden)
@@ -131,6 +165,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   static const _grace = Duration(seconds: 8);
   var _openedAt = DateTime.now();
   bool _graceRetried = false;
+  List<String> _externals = []; // installierte externe Player (VLC, MX)
   DateTime? _sleepAt;
   int _retries = 0, _openId = 0, _tapSeek = 0;
   String _digits = '';
@@ -199,6 +234,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (_phone && store.get('autoPip', true)) _device.invokeMethod('autoPip', true).catchError((_) {});
     _open++;
     _immersive();
+    ExternalPlayer.available().then((v) {
+      if (mounted) setState(() => _externals = v);
+    });
     WidgetsBinding.instance.addObserver(this);
     if (_desktop && store.get('autoFullscreen', false)) _toggleFullscreen();
     _volume = store.get('volume', 1.0).clamp(0.0, _e.maxVolume).toDouble();
@@ -224,6 +262,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _errorAlt.dispose();
     _errorBack.dispose();
     _stillBack.dispose();
+    for (final n in _errorExt) {
+      n.dispose();
+    }
     _stillBtn.dispose();
     store.set('volume', _volume);
     if (_phone) _device.invokeMethod('autoPip', false).catchError((_) {});
@@ -565,7 +606,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     // Fehleranzeige und „Schaust du noch?“: Pfeile wechseln zwischen deren Knöpfen (nicht Spulen/
     // Senderwechsel). Flutters eigene Richtungssuche findet dort keinen Nachbarn und gibt den Fokus ab.
     final btns = _failed
-        ? [_errorBtn, if (_errorAlt.context != null) _errorAlt, _errorBack]
+        ? [_errorBtn, if (_errorAlt.context != null) _errorAlt, ..._errorExt.where((n) => n.context != null), _errorBack]
         : _askStill
         ? [_stillBtn, _stillBack]
         : null;
@@ -1593,6 +1634,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     );
   });
 
+  /// Gleiche Stelle im externen Player weiterschauen; der eigene Player schließt sich.
+  void _openExternal(String id) {
+    final s = _e.state.value;
+    final start = _cur.live || s.position <= Duration.zero ? null : s.position;
+    _saveProgress();
+    final nav = Navigator.of(context);
+    final below = nav.context;
+    nav.pop();
+    playExternal(below, widget.source, _cur, id, start: start);
+  }
+
   void _switchEngine() {
     store.set('engine', _e is ExoEngine ? 'mpv' : 'exo');
     _replace(null);
@@ -1665,6 +1717,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             if (Platform.isAndroid)
               Pill(_e is ExoEngine ? tr('Mit mpv versuchen') : tr('Mit ExoPlayer versuchen'),
                   focusNode: _errorAlt, onTap: _switchEngine),
+            for (final (i, x) in _externals.indexed)
+              Pill(tr('In {0} öffnen', [ExternalPlayer.names[x]]),
+                  icon: Icons.open_in_new_rounded, focusNode: _errorExt[i], onTap: () => _openExternal(x)),
             Pill(tr('Zurück'), icon: Icons.arrow_back_rounded, focusNode: _errorBack, onTap: () => Navigator.maybePop(context)),
           ],
         ),
@@ -2090,6 +2145,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             value: _e is ExoEngine ? 'ExoPlayer' : 'mpv',
             onTap: () => close(_switchEngine),
           ),
+        for (final x in _externals)
+          row(Icons.open_in_new_rounded, tr('In {0} öffnen', [ExternalPlayer.names[x]]),
+              onTap: () => close(() => _openExternal(x))),
       ],
     );
   }

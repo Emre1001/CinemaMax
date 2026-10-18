@@ -98,6 +98,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 ### ▶️ Player
 - **ExoPlayer** auf Android, für IPTV angepasst (Software-Decoder als Rückfall, lange Timeouts, TS ohne Keyframe-Start)
 - **libmpv** auf Linux und Windows, auf Android wählbar
+- **Externe Player**: VLC (Android, Linux, Windows) und MX Player (Android), für alles oder einzeln über „Mehr“; Android merkt sich die Stelle zum Weiterschauen
 - HLS, MPEG-TS, MP4, MKV, DASH, RTSP, RTMP, UDP
 - **Auflösung wählen** (Automatisch, 1080p, 720p …) bei HLS/DASH
 - **Daten sparen**: maximale Auflösung festlegen (z. B. 480p bei langsamem Internet)
