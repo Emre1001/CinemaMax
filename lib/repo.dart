@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +11,7 @@ import 'i18n.dart';
 import 'links.dart';
 import 'm3u.dart';
 import 'models.dart';
+import 'playback.dart';
 import 'store.dart';
 
 /// Lädt Inhalte von M3U-, Xtream- und IPTV-Quellen, mit Disk-Cache für schnellen Start.
@@ -21,11 +23,66 @@ class Repo {
   static Future<String> _get(String url) async {
     // Playlist als Datei (über „Öffnen mit“ übernommen oder lokal eingetragen)
     final file = localPath(url);
-    if (file != null) return utf8.decode(await File(file).readAsBytes(), allowMalformed: true);
-    // Große Anbieter liefern 50 MB+ Filmlisten, langsam erzeugt
-    final r = await _request(Uri.parse(url), headers, const Duration(seconds: 180));
-    if (r.statusCode < 200 || r.statusCode > 299) throw HttpException('HTTP ${r.statusCode}', uri: Uri.parse(url));
-    return utf8.decode(r.bodyBytes, allowMalformed: true);
+    if (file != null) return decodeText(await File(file).readAsBytes());
+    // Playlist-Link mit Kodi-Headern („…/liste.m3u|User-Agent=…“)
+    final (bare, h) = Engine.splitHeaders(url, headers);
+    final u = Uri.parse(bare);
+    // Ohne Gesamtgrenze: große Anbieter liefern 50 MB+ Filmlisten langsam; nur Stillstand bricht ab
+    Future<List<int>> read(http.Client c) async {
+      final r = await c.send(http.Request('GET', u)..headers.addAll(h)).timeout(const Duration(seconds: 60));
+      if (r.statusCode < 200 || r.statusCode > 299) throw HttpException('HTTP ${r.statusCode}', uri: u);
+      final out = BytesBuilder(copy: false);
+      await for (final chunk in r.stream.timeout(const Duration(seconds: 60))) {
+        out.add(chunk);
+        // Video statt Text (z. B. Sender-Link als Playlist eingetragen): gleich abbrechen statt endlos laden
+        if (out.length >= 1024 && out.length - chunk.length < 1024 && _binary(out.toBytes())) {
+          throw const FormatException('Keine Playlist: der Link ist ein Video-Stream');
+        }
+      }
+      if (out.length < 1024 && _binary(out.toBytes())) throw const FormatException('Keine Playlist: der Link ist ein Video-Stream');
+      return out.takeBytes();
+    }
+
+    final client = http.Client();
+    try {
+      return decodeText(await read(client));
+    } on HandshakeException catch (e) {
+      // IPTV-Server haben oft abgelaufene oder selbst signierte Zertifikate
+      if (!'$e'.contains('CERTIFICATE_VERIFY_FAILED')) rethrow;
+      final c = IOClient(HttpClient()..badCertificateCallback = (_, _, _) => true);
+      try {
+        return decodeText(await read(c));
+      } finally {
+        c.close();
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Binärdaten statt Text: MPEG-TS-Pakete (0x47 alle 188 Bytes) oder Nullbytes am Anfang (außer gzip).
+  static bool _binary(List<int> b) =>
+      (b.length > 376 && b[0] == 0x47 && b[188] == 0x47 && b[376] == 0x47) ||
+      (!(b.length > 1 && b[0] == 0x1f && b[1] == 0x8b) && b.take(1024).contains(0));
+
+  /// Text aus Bytes: gepackt (.gz) entpacken, UTF-8 oder ältere Listen in Latin-1/Windows-1252.
+  static String decodeText(List<int> bytes) {
+    if (bytes.length > 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) bytes = gzip.decode(bytes);
+    try {
+      return utf8.decode(bytes);
+    } on FormatException {
+      // Einzelne kaputte Zeichen in einer UTF-8-Liste: UTF-8 behalten. Sonst ist es eine alte Latin-1-Liste.
+      final text = utf8.decode(bytes, allowMalformed: true);
+      var bad = 0, good = 0;
+      for (final c in text.runes) {
+        if (c == 0xFFFD) {
+          bad++;
+        } else if (c > 0x7F) {
+          good++;
+        }
+      }
+      return bad > good ? latin1.decode(bytes, allowInvalid: true) : text;
+    }
   }
 
   /// GET; IPTV-Server haben oft abgelaufene oder selbst signierte Zertifikate: dann ohne Prüfung erneut.
@@ -146,7 +203,8 @@ class Repo {
   /// Handshake: Token holen. Probiert die üblichen Portal-Pfade durch.
   static Future<String> _stalkerLogin(Source s) async {
     TlsException? tls;
-    final base = s.host.replaceAll(RegExp(r'/c$'), '');
+    // „http://host/c/“, „…/c/index.html“, „…/stalker_portal/c/“: Portal-Basis ohne den Client-Teil
+    final base = s.host.replaceFirst(RegExp(r'/c(/[^/]*)?$'), '');
     final candidates = base.contains('/stalker_portal')
         ? ['${base.split('/stalker_portal').first}/stalker_portal/server/load.php']
         : ['$base/portal.php', '$base/server/load.php', '$base/stalker_portal/server/load.php'];
@@ -340,7 +398,7 @@ class Repo {
     final js = await _stalker(s,
         'type=$type&action=create_link&cmd=${Uri.encodeQueryComponent(cmd)}${ep == null ? '' : '&series=$ep'}&disable_ad=0&download=0');
     final link = '${js is Map ? js['cmd'] : ''}'.trim().replaceFirst(RegExp(r'^(ffmpeg|ffrt\d?|auto)\s+'), '');
-    if (!RegExp(r'^(https?|rtmp|rtsp|udp)://').hasMatch(link)) {
+    if (!RegExp(r'^[a-z][a-z0-9+.-]*://', caseSensitive: false).hasMatch(link)) {
       throw const FormatException('Portal liefert keinen Stream-Link');
     }
     return link;
@@ -389,17 +447,19 @@ class Repo {
   static Future<List<Episode>> xtreamEpisodes(Source s, String seriesId) async {
     final j = _json(await _get('${_api(s, 'get_series_info')}&series_id=$seriesId'));
     final eps = <Episode>[];
-    final map = j['episodes'];
+    // Serie ohne Folgen kommt als [] statt {…}; Staffeln als Liste oder als {"0": {…}}
+    final map = j is Map ? j['episodes'] : null;
     final seasons = map is Map ? map.values : (map is List ? map : const []);
     for (final list in seasons) {
-      for (final e in list as List) {
+      for (final e in list is Map ? list.values : list is List ? list : const []) {
+        if (e is! Map) continue;
         final info = e['info'] is Map ? e['info'] : const {};
         eps.add(Episode(
           id: '${e['id']}',
           season: int.tryParse('${e['season']}') ?? 1,
           number: int.tryParse('${e['episode_num']}') ?? 0,
           title: '${e['title'] ?? ''}',
-          url: '${_path(s, 'series')}${e['id']}.${e['container_extension'] ?? 'mp4'}',
+          url: '${_path(s, 'series')}${e['id']}.${_str(e['container_extension']) ?? 'mp4'}',
           image: _str(info['movie_image']),
           plot: _str(info['plot']),
         ));
@@ -427,7 +487,8 @@ class Repo {
   /// Aktuelle + nächste Sendung (EPG) für einen Live-Sender.
   static Future<List<({String title, DateTime start, DateTime end})>> xtreamEpg(
       Source s, String streamId) async {
-    final j = _json(await _get('${_api(s, 'get_short_epg')}&stream_id=$streamId&limit=3'));
+    final r = _json(await _get('${_api(s, 'get_short_epg')}&stream_id=$streamId&limit=3'));
+    final j = r is Map ? r : const {};
     String b64(dynamic v) {
       try {
         return utf8.decode(base64.decode('$v'));
@@ -508,7 +569,7 @@ Map<Kind, List<MediaItem>> _buildXtream((List<String>, String, String, String) a
           kind: Kind.movie,
           group: vodCats['${e['category_id']}'] ?? 'Ohne Kategorie',
           logo: _str(e['stream_icon']),
-          url: '$moviePrefix${e['stream_id']}.${e['container_extension'] ?? 'mp4'}',
+          url: '$moviePrefix${e['stream_id']}.${_str(e['container_extension']) ?? 'mp4'}',
           rating: _str(e['rating']),
           year: _str(e['year']),
           added: added(e['added']),

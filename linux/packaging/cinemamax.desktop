@@ -5,5 +5,5 @@ Comment=IPTV, M3U und Xtream Player
 Exec=cinemamax %u
 Icon=cinemamax
 Categories=AudioVideo;Video;Player;TV;
-MimeType=audio/x-mpegurl;audio/mpegurl;application/x-mpegurl;application/vnd.apple.mpegurl;video/mp4;video/x-matroska;video/mp2t;video/webm;video/x-msvideo;video/quicktime;x-scheme-handler/rtmp;x-scheme-handler/rtsp;x-scheme-handler/udp;
+MimeType=audio/x-mpegurl;audio/mpegurl;application/x-mpegurl;application/vnd.apple.mpegurl;application/dash+xml;video/mp4;video/x-matroska;video/mp2t;video/webm;video/x-msvideo;video/quicktime;video/mpeg;video/x-flv;video/x-ms-wmv;video/x-ms-asf;video/3gpp;video/x-m4v;video/ogg;audio/mpeg;audio/aac;audio/mp4;audio/flac;audio/ogg;audio/x-wav;audio/x-matroska;x-scheme-handler/rtmp;x-scheme-handler/rtmps;x-scheme-handler/rtsp;x-scheme-handler/rtsps;x-scheme-handler/udp;x-scheme-handler/rtp;x-scheme-handler/mms;x-scheme-handler/mmsh;x-scheme-handler/srt;
 Terminal=false

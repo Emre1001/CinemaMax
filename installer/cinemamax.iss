@@ -1,5 +1,5 @@
 ; Windows-Installer für CinemaMax (Inno Setup 6).
-; Wird im GitHub-Build erzeugt:  iscc /DAppVersion=1.6.5 installer\cinemamax.iss
+; Wird im GitHub-Build erzeugt:  iscc /DAppVersion=1.6.6 installer\cinemamax.iss
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
@@ -59,6 +59,19 @@ Root: HKA; Subkey: "Software\Classes\.ts\OpenWithProgids"; ValueType: string; Va
 Root: HKA; Subkey: "Software\Classes\.avi\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.mov\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.m4v\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.mpg\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.mpeg\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.m2ts\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.mts\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.flv\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.wmv\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.3gp\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.mpd\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.mp3\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.aac\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.m4a\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.flac\OpenWithProgids"; ValueType: string; ValueName: "CinemaMax.Media"; ValueData: ""; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\cinemamax.exe"; Description: "{cm:LaunchProgram,CinemaMax}"; Flags: nowait postinstall skipifsilent

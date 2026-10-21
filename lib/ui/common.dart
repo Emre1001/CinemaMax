@@ -90,10 +90,24 @@ class _TapState extends State<Tap> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addHighlightModeListener(_mode);
+  }
+
+  void _mode(FocusHighlightMode _) {
+    if (_focus && mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    FocusManager.instance.removeHighlightModeListener(_mode);
     _own?.dispose();
     super.dispose();
   }
+
+  /// Fokus sichtbar machen: Fernseher immer, sonst nur nach Tastatur-/Pfeil-Eingabe (nicht nach Tippen).
+  bool get _ring => _focus && (isAndroidTv || FocusManager.instance.highlightMode == FocusHighlightMode.traditional);
 
   KeyEventResult _key(FocusNode _, KeyEvent e) {
     final k = e.logicalKey;
@@ -139,22 +153,22 @@ class _TapState extends State<Tap> {
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
           child: AnimatedScale(
-            scale: _focus ? widget.scale : (_hover ? 1 + (widget.scale - 1) / 2 : 1),
+            scale: _ring ? widget.scale : (_hover ? 1 + (widget.scale - 1) / 2 : 1),
             duration: store.anim,
             curve: Curves.easeOutCubic,
             child: AnimatedContainer(
               duration: store.anim,
               decoration: BoxDecoration(
                 borderRadius: r,
-                color: widget.fill && (_focus || _hover) ? Colors.white.withValues(alpha: _focus ? .12 : .06) : null,
-                boxShadow: _focus && !widget.fill
+                color: widget.fill && (_ring || _hover) ? Colors.white.withValues(alpha: _ring ? .12 : .06) : null,
+                boxShadow: _ring && !widget.fill
                     ? [BoxShadow(color: Colors.black.withValues(alpha: .6), blurRadius: 24, offset: const Offset(0, 10))]
                     : null,
               ),
               foregroundDecoration: BoxDecoration(
                 borderRadius: r,
                 border: Border.all(
-                  color: _focus ? (widget.fill ? accent : Colors.white) : Colors.transparent,
+                  color: _ring ? (widget.fill ? accent : Colors.white) : Colors.transparent,
                   width: 2,
                 ),
               ),
@@ -411,7 +425,14 @@ class InputBox extends StatelessWidget {
       child: ListenableBuilder(
         listenable: controller,
         builder: (_, _) => InputDecorator(
-          decoration: decoration.copyWith(suffixIcon: const Icon(Icons.keyboard_rounded)),
+          // Unterstrich statt Rahmen: die schwebende Beschriftung bleibt im Feld, statt auf dem
+          // (vom Fokus-Rahmen abgeschnittenen) Rand zu sitzen
+          decoration: decoration.copyWith(
+            suffixIcon: const Icon(Icons.keyboard_rounded),
+            border: const UnderlineInputBorder(borderSide: BorderSide.none),
+            enabledBorder: const UnderlineInputBorder(borderSide: BorderSide.none),
+            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide.none),
+          ),
           isEmpty: controller.text.isEmpty,
           child: Text(secret ? '•' * controller.text.length : controller.text, style: style),
         ),

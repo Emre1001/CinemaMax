@@ -11,7 +11,6 @@ import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import io.flutter.plugins.videoplayer.ExoPlayerEventListener;
 import io.flutter.plugins.videoplayer.VideoPlayerCallbacks;
-import java.util.Objects;
 
 public final class PlatformViewExoPlayerEventListener extends ExoPlayerEventListener {
   public PlatformViewExoPlayerEventListener(
@@ -25,8 +24,12 @@ public final class PlatformViewExoPlayerEventListener extends ExoPlayerEventList
     // We can't rely on VideoSize here, because at this point it is not available - the platform
     // view was not created yet. We use the video format instead.
     Format videoFormat = exoPlayer.getVideoFormat();
-    RotationDegrees rotationCorrection =
-        RotationDegrees.fromDegrees(Objects.requireNonNull(videoFormat).rotationDegrees);
+    // CinemaMax: reiner Ton (Radio) hat kein Videoformat; ohne diese Prüfung stürzt die App ab
+    if (videoFormat == null) {
+      events.onInitialized(0, 0, reportedDuration(), 0);
+      return;
+    }
+    RotationDegrees rotationCorrection = RotationDegrees.fromDegrees(videoFormat.rotationDegrees);
     int width = videoFormat.width;
     int height = videoFormat.height;
 
@@ -51,6 +54,6 @@ public final class PlatformViewExoPlayerEventListener extends ExoPlayerEventList
       rotationCorrection = RotationDegrees.fromDegrees(0);
     }
 
-    events.onInitialized(width, height, exoPlayer.getDuration(), rotationCorrection.getDegrees());
+    events.onInitialized(width, height, reportedDuration(), rotationCorrection.getDegrees());
   }
 }

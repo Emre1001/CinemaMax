@@ -40,8 +40,11 @@ void openItem(BuildContext c, Source s, MediaItem m, {List<MediaItem>? siblings}
     Navigator.push(c, MaterialPageRoute(builder: (_) => DetailScreen(source: s, item: m)));
     return;
   }
-  final list = siblings ?? [m];
-  PlayerScreen.open(c, s, [for (final x in list) PlayItem(x.url!, x.name, x)], list.indexOf(m).clamp(0, list.length));
+  // Nach ID suchen: Favoriten/Verlauf liefern bei jedem Aufruf neue Objekte
+  var list = siblings ?? [m];
+  var i = list.indexWhere((x) => x.id == m.id);
+  if (i < 0) (list, i) = ([m], 0);
+  PlayerScreen.open(c, s, [for (final x in list) PlayItem(x.url!, x.name, x)], i);
 }
 
 void toggleFav(BuildContext c, Source s, MediaItem m) {
@@ -248,6 +251,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
       Tab.downloads,
       Tab.settings,
     ];
+    Widget item(Tab t) => _NavItem(
+          focusNode: _navNodes[t],
+          tab: t,
+          selected: t == _tab,
+          expanded: _navOpen || !tv,
+          autofocus: t == _tab,
+          onSelect: () => setState(() => _tab = t),
+        );
     return PopScope(
       canPop: _navFocus.hasFocus || !tv,
       onPopInvokedWithResult: (didPop, _) {
@@ -263,7 +274,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
               curve: Curves.easeOutCubic,
               width: _navOpen || !tv ? 228 : 84,
               color: surface,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 14),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 SizedBox(
                   height: 40,
@@ -276,18 +287,17 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
-                for (final t in navItems) ...[
-                  if (t == Tab.settings) const Spacer(),
-                  _NavItem(
-                    focusNode: _navNodes[t],
-                    tab: t,
-                    selected: t == _tab,
-                    expanded: _navOpen || !tv,
-                    autofocus: t == _tab,
-                    onSelect: () => setState(() => _tab = t),
+                const SizedBox(height: 16),
+                // Fernseher haben meist nur 540 logische Pixel Höhe: Bereiche scrollen statt abschneiden
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      for (final t in navItems)
+                        if (t != Tab.settings) item(t),
+                    ]),
                   ),
-                ],
+                ),
+                item(Tab.settings),
                 _NavItem(
                   icon: Icons.swap_horiz_rounded,
                   label: tr('Server wechseln'),

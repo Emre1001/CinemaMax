@@ -23,12 +23,13 @@ class Download {
   final String srcId;
   final MediaItem item;
   final String title;
-  final String file;
+  String file; // fragmentiertes MP4 aus HLS bekommt beim Start „.mp4“ statt „.ts“
   final int until; // Aufnahme: Ende als Unix-ms, 0 = normaler Download
   final int maxHeight; // HLS: höchste Auflösung (Speicher sparen), 0 = beste
   DlStatus status;
   int received, total;
   int seg = 0, segs = 0; // HLS: fertige/alle Segmente (Fortschritt und Fortsetzen)
+  bool fmp4 = false; // HLS mit fMP4-Segmenten: Datei ohne Index, spulbar nur mit mpv
   String? error;
 
   Download({
@@ -61,6 +62,7 @@ class Download {
         'err': error,
         'until': until,
         if (maxHeight > 0) 'maxH': maxHeight,
+        if (fmp4) 'fmp4': true,
         if (segs > 0) ...{'seg': seg, 'segs': segs},
       };
 
@@ -78,7 +80,8 @@ class Download {
         maxHeight: j['maxH'] ?? 0,
       )
         ..seg = j['seg'] ?? 0
-        ..segs = j['segs'] ?? 0;
+        ..segs = j['segs'] ?? 0
+        ..fmp4 = j['fmp4'] ?? false;
 }
 
 /// Lädt Filme und Episoden als Datei herunter (eine nach der anderen, fortsetzbar per HTTP-Range).
@@ -116,6 +119,10 @@ class Downloads extends ChangeNotifier {
 
   Download? of(String url) => items[url];
 
+  /// Player für die Offline-Datei: fMP4 aus HLS hat keinen Index (ExoPlayer kennt nur das erste
+  /// Fragment und meldet danach „Ende“), mpv liest alle Fragmente. null = Einstellung.
+  String? engineFor(String url) => Platform.isAndroid && localFile(url) != null && items[url]!.fmp4 ? 'mpv' : null;
+
   int get usedBytes => items.values.where((d) => d.status == DlStatus.done).fold(0, (a, d) => a + d.received);
 
   void _save({bool force = true}) {
@@ -135,7 +142,11 @@ class Downloads extends ChangeNotifier {
     final hls = isHls(url);
     final ext = hls
         ? 'ts'
-        : RegExp(r'\.(mp4|mkv|avi|mov|m4v|webm|ts|wmv|flv)(\?|$)', caseSensitive: false).firstMatch(url)?.group(1) ?? 'mp4';
+        : RegExp(r'\.(mp4|mkv|avi|mov|m4v|webm|ts|wmv|flv|mpg|mpeg|m2ts|mp3|aac|m4a)(\?|$)', caseSensitive: false)
+                .firstMatch(url.split('|').first)
+                ?.group(1)
+                ?.toLowerCase() ??
+            'mp4';
     final safe = title.replaceAll(RegExp(r'[^\p{L}\p{N} ._()-]+', unicode: true), '_').trim();
     final name = '${safe.isEmpty ? 'video' : safe.substring(0, safe.length.clamp(0, 80))}_${url.hashCode.toUnsigned(32)}.$ext';
     items[url] = Download(url: url, srcId: s.id, item: item, title: title, file: '${_dir.path}/$name', maxHeight: maxHeight);
@@ -187,6 +198,8 @@ class Downloads extends ChangeNotifier {
 
   /// Live-Sender für [minutes] Minuten aufnehmen. Läuft sofort, neben normalen Downloads.
   void record(Source s, MediaItem ch, String url, int minutes) {
+    // Xtream liefert jeden Live-Sender auch als MPEG-TS: das lässt sich aufnehmen
+    if (s.type == SourceType.xtream) url = url.replaceFirst(RegExp(r'\.m3u8(?=$|[?|])'), '.ts');
     if (url.split('|').first.toLowerCase().contains('.m3u8')) {
       throw StateError(tr('HLS-Sender können nicht aufgenommen werden'));
     }
@@ -251,42 +264,88 @@ class Downloads extends ChangeNotifier {
       if (source == null) throw StateError(tr('Server nicht mehr vorhanden'));
       url = await Repo.stalkerResolve(source, url);
     }
-    if (!d.isRecording && isHls(url)) return _runHls(d, url, headers);
+    if (d.isRecording) return _runRecording(d, url, headers);
+    if (isHls(url)) return _runHls(d, url, headers);
     final f = File(d.file);
     var have = await f.exists() ? await f.length() : 0;
     final client = _clients[d.url] = http.Client();
-    final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);
-    if (have > 0 && !d.isRecording) req.headers['Range'] = 'bytes=$have-';
-    final res = await client.send(req).timeout(const Duration(seconds: 30));
-    // Datei ist schon vollständig (App wurde nach dem Laden beendet)
-    if (res.statusCode == 416 && have > 0) {
-      client.close();
-      _clients.remove(d.url);
-      d.received = d.total = have;
-      return;
-    }
-    if (res.statusCode == 200 && !d.isRecording) {
-      have = 0; // Server unterstützt kein Fortsetzen: neu beginnen
-    } else if (res.statusCode != 206) {
-      throw HttpException('HTTP ${res.statusCode}');
-    }
-    d.total = d.isRecording ? 0 : have + (res.contentLength ?? 0);
-    d.received = have;
-    final sink = f.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
     try {
-      await for (final chunk in res.stream) {
-        sink.add(chunk);
-        d.received += chunk.length;
-        _save(force: false);
-        if (d.isRecording && DateTime.now().millisecondsSinceEpoch >= d.until) break;
+      final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);
+      if (have > 0) req.headers['Range'] = 'bytes=$have-';
+      final res = await client.send(req).timeout(const Duration(seconds: 30));
+      // Datei ist schon vollständig (App wurde nach dem Laden beendet)
+      if (res.statusCode == 416 && have > 0) {
+        d.received = d.total = have;
+        return;
+      }
+      if (res.statusCode == 200) {
+        have = 0; // Server unterstützt kein Fortsetzen: neu beginnen
+      } else if (res.statusCode != 206) {
+        throw HttpException('HTTP ${res.statusCode}');
+      }
+      d.total = have + (res.contentLength ?? 0);
+      d.received = have;
+      final sink = f.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
+      try {
+        await for (final chunk in res.stream) {
+          sink.add(chunk);
+          d.received += chunk.length;
+          _save(force: false);
+        }
+      } finally {
+        await sink.close();
       }
     } finally {
-      await sink.close();
       client.close();
-      _clients.remove(d.url);
+      // Nach Pause + sofortigem Fortsetzen gehört der Eintrag schon dem neuen Lauf
+      if (_clients[d.url] == client) _clients.remove(d.url);
     }
     if (d.total > 0 && d.received < d.total) throw HttpException(tr('Verbindung abgebrochen'));
     if (d.total == 0) d.total = d.received;
+  }
+
+  /// Live-Aufnahme bis [Download.until]. IPTV-Streams reißen oft kurz ab: dann neu verbinden und weiterschreiben.
+  Future<void> _runRecording(Download d, String url, Map<String, String> headers) async {
+    final sink = File(d.file).openWrite(mode: FileMode.append);
+    // Hängt der Stream ohne Daten, endet die Aufnahme trotzdem pünktlich
+    final stop = Timer(Duration(milliseconds: d.until - DateTime.now().millisecondsSinceEpoch), () => stopRecording(d.url));
+    var fails = 0;
+    try {
+      while (DateTime.now().millisecondsSinceEpoch < d.until) {
+        final client = _clients[d.url] = http.Client();
+        Object? error;
+        var got = 0;
+        try {
+          final res = await client.send(http.Request('GET', Uri.parse(url))..headers.addAll(headers))
+              .timeout(const Duration(seconds: 30));
+          if (res.statusCode != 200 && res.statusCode != 206) throw HttpException('HTTP ${res.statusCode}');
+          await for (final chunk in res.stream) {
+            sink.add(chunk);
+            got += chunk.length;
+            d.received += chunk.length;
+            _save(force: false);
+            if (DateTime.now().millisecondsSinceEpoch >= d.until) break;
+          }
+        } catch (e) {
+          error = e;
+        } finally {
+          client.close();
+        }
+        if (_clients[d.url] != client) break; // von Hand beendet oder Zeit abgelaufen
+        if (got > 0) {
+          fails = 0;
+        } else if (++fails >= 5) {
+          if (d.received == 0) throw error ?? HttpException(tr('Verbindung abgebrochen'));
+          break;
+        }
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    } finally {
+      stop.cancel();
+      _clients.remove(d.url);
+      await sink.close();
+    }
+    d.total = d.received;
   }
 }
 
@@ -361,7 +420,7 @@ Future<List<({int height, int bytes})>> hlsQualities(Source s, String url) async
     final variants = parseVariants(base, text).where((v) => v.height > 0 && !v.separateAudio).toList();
     if (variants.length < 2) return [];
     final (_, media) = await _fetchPlaylist(client, variants.first.uri, headers);
-    final seconds = RegExp(r'#EXTINF:([\d.]+)').allMatches(media).fold(0.0, (a, m) => a + double.parse(m.group(1)!));
+    final seconds = _seconds(media);
     final out = <({int height, int bytes})>[];
     for (final v in variants) {
       if (out.every((o) => o.height != v.height)) out.add((height: v.height, bytes: (v.bandwidth / 8 * seconds).round()));
@@ -389,9 +448,19 @@ extension on Downloads {
         throw StateError(tr('Verschlüsselte Streams können nicht heruntergeladen werden.'));
       }
       final lines = text.split('\n').map((l) => l.trim()).toList();
-      final map = lines.where((l) => l.startsWith('#EXT-X-MAP:')).map((l) => _attrs(l)['URI']).nonNulls.firstOrNull;
-      final segments = [for (final l in lines) if (l.isNotEmpty && !l.startsWith('#')) base.resolve(l)];
-      final seconds = RegExp(r'#EXTINF:([\d.]+)').allMatches(text).fold(0.0, (a, m) => a + double.parse(m.group(1)!));
+      var map = lines.where((l) => l.startsWith('#EXT-X-MAP:')).map((l) => _attrs(l)['URI']).nonNulls.firstOrNull;
+      if (map != null) {
+        d.fmp4 = true;
+        // Inhalt ist MP4, nicht MPEG-TS: Endung passend für Player und Dateimanager
+        if (d.seg == 0 && d.file.endsWith('.ts')) d.file = '${d.file.substring(0, d.file.length - 3)}.mp4';
+      }
+      var segments = [for (final l in lines) if (l.isNotEmpty && !l.startsWith('#')) base.resolve(l)];
+      // Teilstücke einer einzigen Datei (#EXT-X-BYTERANGE): jede Datei einmal ganz laden, sie enthält alles
+      if (text.contains('#EXT-X-BYTERANGE')) {
+        segments = segments.toSet().toList();
+        if (map != null && segments.contains(base.resolve(map))) map = null;
+      }
+      final seconds = _seconds(text);
       final bandwidth = variants.isEmpty ? 0 : pickVariant(variants, d.maxHeight).bandwidth;
       d.segs = segments.length;
       if (d.total == 0 && bandwidth > 0) d.total = (bandwidth / 8 * seconds).round(); // Schätzung
@@ -439,10 +508,14 @@ extension on Downloads {
       d.total = d.received;
     } finally {
       client.close();
-      _clients.remove(d.url);
+      if (_clients[d.url] == client) _clients.remove(d.url);
     }
   }
 }
+
+/// Gesamtdauer einer HLS-Medienliste in Sekunden.
+double _seconds(String playlist) =>
+    RegExp(r'#EXTINF:\s*([\d.]+)').allMatches(playlist).fold(0.0, (a, m) => a + (double.tryParse(m.group(1)!) ?? 0));
 
 String fmtBytes(int b) {
   if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(0)} KB';

@@ -215,52 +215,62 @@ class _StartScreenState extends State<StartScreen> {
             .then((_) => setState(() {})),
       ),
     ];
+    // Handy quer: weniger Höhe als Inhalt, dann scrollen; sonst verteilen die Spacer den Platz wie bisher
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: wide ? 56 : 20, vertical: 24),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Wordmark(),
-              const Spacer(),
-              Tap(
-                radius: 100,
-                onTap: () => askLink(context),
-                child: Tooltip(
-                  message: tr('Link öffnen'),
-                  child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.link_rounded)),
+        child: LayoutBuilder(
+          builder: (_, box) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: box.maxHeight),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: wide ? 56 : 20, vertical: 24),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      const Wordmark(),
+                      const Spacer(),
+                      Tap(
+                        radius: 100,
+                        onTap: () => askLink(context),
+                        child: Tooltip(
+                          message: tr('Link öffnen'),
+                          child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.link_rounded)),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      // Downloads auch ohne Internet erreichbar
+                      Tap(
+                        radius: 100,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadsScreen())),
+                        child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.download_rounded)),
+                      ),
+                      const SizedBox(width: 4),
+                      Tap(
+                        radius: 100,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))
+                            .then((_) => setState(() {})),
+                        child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.tune_rounded)),
+                      ),
+                    ]),
+                    const Spacer(),
+                    Text(tr('Was möchtest du schauen?'),
+                        style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w800, letterSpacing: -1)),
+                    const SizedBox(height: 24),
+                    wide
+                        ? IntrinsicHeight(
+                            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                              Expanded(child: cards[0]),
+                              const SizedBox(width: 20),
+                              Expanded(child: cards[1]),
+                            ]),
+                          )
+                        : Column(children: [cards[0], const SizedBox(height: 14), cards[1]]),
+                    const Spacer(flex: 2),
+                  ]),
                 ),
               ),
-              const SizedBox(width: 4),
-              // Downloads auch ohne Internet erreichbar
-              Tap(
-                radius: 100,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadsScreen())),
-                child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.download_rounded)),
-              ),
-              const SizedBox(width: 4),
-              Tap(
-                radius: 100,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))
-                    .then((_) => setState(() {})),
-                child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.tune_rounded)),
-              ),
-            ]),
-            const Spacer(),
-            Text(tr('Was möchtest du schauen?'),
-                style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w800, letterSpacing: -1)),
-            const SizedBox(height: 24),
-            wide
-                ? IntrinsicHeight(
-                    child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      Expanded(child: cards[0]),
-                      const SizedBox(width: 20),
-                      Expanded(child: cards[1]),
-                    ]),
-                  )
-                : Column(children: [cards[0], const SizedBox(height: 14), cards[1]]),
-            const Spacer(flex: 2),
-          ]),
+            ),
+          ),
         ),
       ),
     );
@@ -621,7 +631,8 @@ class _SourceEditorState extends State<SourceEditor> {
     if (!url.contains('://') && localPath(url) == null) url = 'http://$url';
     // get.php-Links sind Xtream-Zugänge: als Xtream speichern (Filme/Serien/EPG besser).
     // Im Xtream-Feld eingefügte get.php-/player_api.php-Links: Zugangsdaten übernehmen.
-    final u = Uri.tryParse(url);
+    // Kodi-Header („…|User-Agent=…“) gehören nicht zur Adresse
+    final u = Uri.tryParse(url.split('|').first);
     final m3uUrl = url;
     final xt = u == null ? null : xtreamFromUrl(u);
     if (xt != null && (type == SourceType.m3u || type == SourceType.xtream)) {

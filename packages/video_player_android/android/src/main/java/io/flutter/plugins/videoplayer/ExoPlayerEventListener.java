@@ -75,6 +75,18 @@ public abstract class ExoPlayerEventListener implements Player.Listener {
     return exoPlayer.getDuration() != C.TIME_UNSET;
   }
 
+  /**
+   * CinemaMax: Dauer für Dart. Unbekannt (Live-MPEG-TS ohne Länge) als {@link #UNKNOWN_DURATION_MS}
+   * statt C.TIME_UNSET: Dart rechnet in Mikrosekunden, TIME_UNSET läuft dort über und wird zu 1 ms.
+   * Der Player hält dann die Position bei 1 ms fest und meldet den Stream sofort als beendet.
+   */
+  public static final long UNKNOWN_DURATION_MS = Long.MAX_VALUE / 1000;
+
+  protected long reportedDuration() {
+    long duration = exoPlayer.getDuration();
+    return duration == C.TIME_UNSET ? UNKNOWN_DURATION_MS : duration;
+  }
+
   private boolean shouldWaitForValidDuration() {
     return !exoPlayer.isCurrentMediaItemLive() && !exoPlayer.isCurrentMediaItemDynamic();
   }

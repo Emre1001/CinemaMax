@@ -54,6 +54,8 @@
                 <data android:mimeType="application/x-mpegurl"/>
                 <data android:mimeType="application/vnd.apple.mpegurl"/>
                 <data android:mimeType="application/dash+xml"/>
+                <data android:mimeType="application/x-matroska"/>
+                <data android:mimeType="application/mp4"/>
             </intent-filter>
             <!-- Streaming-Protokolle ohne Dateityp -->
             <intent-filter>
@@ -62,13 +64,17 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="rtmp"/>
                 <data android:scheme="rtmps"/>
+                <data android:scheme="rtmpe"/>
+                <data android:scheme="rtmpt"/>
                 <data android:scheme="rtsp"/>
+                <data android:scheme="rtsps"/>
                 <data android:scheme="udp"/>
                 <data android:scheme="rtp"/>
                 <data android:scheme="mms"/>
+                <data android:scheme="mmsh"/>
                 <data android:scheme="srt"/>
             </intent-filter>
-            <!-- Links im Browser: Playlists (.m3u/.m3u8) und Xtream-get.php -->
+            <!-- Links im Browser: Playlists (.m3u/.m3u8), DASH, Xtream-get.php und Videodateien -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
@@ -80,13 +86,50 @@
                 <data android:pathPattern=".*\\..*\\.m3u"/>
                 <data android:pathPattern=".*\\.m3u8"/>
                 <data android:pathPattern=".*\\..*\\.m3u8"/>
+                <data android:pathPattern=".*\\.mpd"/>
+                <data android:pathPattern=".*\\..*\\.mpd"/>
                 <data android:pathPattern=".*/get\\.php"/>
+                <!-- Video-/Ton-Links ohne MIME-Typ (Browser kennt den Typ vor dem Laden nicht) -->
+                <data android:pathPattern=".*\\.ts"/>
+                <data android:pathPattern=".*\\..*\\.ts"/>
+                <data android:pathPattern=".*\\.mp4"/>
+                <data android:pathPattern=".*\\..*\\.mp4"/>
+                <data android:pathPattern=".*\\.mkv"/>
+                <data android:pathPattern=".*\\..*\\.mkv"/>
+                <data android:pathPattern=".*\\.avi"/>
+                <data android:pathPattern=".*\\..*\\.avi"/>
+                <data android:pathPattern=".*\\.mov"/>
+                <data android:pathPattern=".*\\..*\\.mov"/>
+                <data android:pathPattern=".*\\.webm"/>
+                <data android:pathPattern=".*\\..*\\.webm"/>
+                <data android:pathPattern=".*\\.flv"/>
+                <data android:pathPattern=".*\\..*\\.flv"/>
+                <data android:pathPattern=".*\\.m4v"/>
+                <data android:pathPattern=".*\\..*\\.m4v"/>
+                <data android:pathPattern=".*\\.wmv"/>
+                <data android:pathPattern=".*\\..*\\.wmv"/>
+                <data android:pathPattern=".*\\.mpg"/>
+                <data android:pathPattern=".*\\..*\\.mpg"/>
+                <data android:pathPattern=".*\\.mp3"/>
+                <data android:pathPattern=".*\\..*\\.mp3"/>
+                <data android:pathPattern=".*\\.aac"/>
+                <data android:pathPattern=".*\\..*\\.aac"/>
             </intent-filter>
             <!-- Link als Text teilen -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="text/plain"/>
+            </intent-filter>
+            <!-- Video, Ton oder Playlist als Datei teilen (EXTRA_STREAM) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="video/*"/>
+                <data android:mimeType="audio/*"/>
+                <data android:mimeType="application/x-mpegurl"/>
+                <data android:mimeType="application/vnd.apple.mpegurl"/>
+                <data android:mimeType="application/dash+xml"/>
             </intent-filter>
         </activity>
         <provider

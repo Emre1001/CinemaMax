@@ -1,10 +1,12 @@
 import 'models.dart';
 
 final _vlcOpt = RegExp(r'^#EXTVLCOPT:\s*(http-user-agent|http-referrer|http-referer)\s*=\s*(.+)$', caseSensitive: false);
+// Kodi: #KODIPROP:inputstream.adaptive.stream_headers=User-Agent=x&Referer=y (auch manifest_headers)
+final _kodiHeaders = RegExp(r'^#KODIPROP:\s*inputstream\.adaptive\.(?:stream|manifest)_headers\s*=\s*(.+)$', caseSensitive: false);
 final _jsonPair = RegExp(r'"([\w-]+)"\s*:\s*"([^"]*)"');
 final _attr = RegExp(r'([\w-]+)="([^"]*)"');
 final _episode = RegExp(r'^(.*?)[\s._\-|]*S(\d{1,2})[\s._]*E(\d{1,4})', caseSensitive: false);
-final _vodExt = RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|m4v|webm|mpg|mpeg)(\?|$)', caseSensitive: false);
+final _vodExt = RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|m4v|webm|mpg|mpeg|m2ts|vob|divx)(\?|$)', caseSensitive: false);
 final _moviePath = RegExp(r'/(movie|movies|vod|film|films)/', caseSensitive: false);
 final _seriesPath = RegExp(r'/(series|serie|shows)/', caseSensitive: false);
 // Viele Listen trennen Filme/Serien nur über den Kategorienamen
@@ -16,7 +18,8 @@ final _tvgUrl = RegExp(r'(?:url-tvg|x-tvg-url|tvg-url)="([^"]+)"', caseSensitive
 /// EPG-Adresse aus dem #EXTM3U-Kopf (erste nur, falls mehrere per Komma).
 String? m3uEpgUrl(String text) {
   final head = text.length > 2000 ? text.substring(0, 2000) : text;
-  final line = head.split('\n').firstWhere((l) => l.startsWith('#EXTM3U'), orElse: () => '');
+  // trim: entfernt auch das BOM vor „#EXTM3U“
+  final line = head.split('\n').map((l) => l.trim()).firstWhere((l) => l.startsWith('#EXTM3U'), orElse: () => '');
   final m = _tvgUrl.firstMatch(line);
   return m?.group(1)?.split(',').first.trim();
 }
@@ -35,7 +38,7 @@ Kind classify(String url, String name, String group, String? tvgType) {
   final vodFile = _vodExt.hasMatch(path);
   if (_episode.hasMatch(name) && (vodFile || _seriesGroup.hasMatch(group))) return Kind.series;
   // .ts/.m3u8 sind fast immer Live-Sender, auch in Kategorien wie "DE | KINO"
-  final liveFile = path.endsWith('.ts') || path.endsWith('.m3u8');
+  final liveFile = RegExp(r'\.(ts|m3u8?)$', caseSensitive: false).hasMatch(path);
   if (_seriesGroup.hasMatch(group) && !liveFile) return Kind.series;
   if (vodFile || (_movieGroup.hasMatch(group) && !liveFile)) return Kind.movie;
   return Kind.live;
@@ -46,14 +49,14 @@ Kind classify(String url, String name, String group, String? tvgType) {
 Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
   final live = <MediaItem>[];
   final movies = <MediaItem>[];
-  final series = <String, ({String group, String? logo, List<Episode> eps})>{};
+  final series = <String, ({String group, String show, String? logo, List<Episode> eps})>{};
 
   Map<String, String> attrs = {};
   String? title;
   String? extGroup;
   final headers = <String, String>{}; // aus #EXTVLCOPT / #EXTHTTP, gilt für den nächsten Link
 
-  for (var line in text.split('\n')) {
+  for (var line in text.split(RegExp(r'\r\n?|\n'))) {
     line = line.trim();
     if (line.isEmpty) continue;
     if (line.startsWith('#EXTINF')) {
@@ -79,12 +82,25 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
       }
       continue;
     }
+    final kodi = _kodiHeaders.firstMatch(line);
+    if (kodi != null) {
+      for (final part in kodi.group(1)!.split('&')) {
+        final k = part.indexOf('=');
+        if (k > 0) headers[_decode(part.substring(0, k))] = _decode(part.substring(k + 1));
+      }
+      continue;
+    }
     if (line.startsWith('#')) continue;
 
-    // Header in Kodi-Schreibweise an den Link hängen ("url|User-Agent=..."); der Player trennt sie wieder ab
-    final url = headers.isEmpty || line.contains('|')
-        ? line
-        : '$line|${headers.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&')}';
+    // Manche Listen setzen Header als Attribut: #EXTINF:-1 http-user-agent="…" http-referrer="…"
+    final ua = attrs['http-user-agent'] ?? attrs['user-agent'];
+    final ref = attrs['http-referrer'] ?? attrs['http-referer'] ?? attrs['referrer'] ?? attrs['referer'];
+    if (ua != null && ua.isNotEmpty) headers.putIfAbsent('User-Agent', () => ua);
+    if (ref != null && ref.isNotEmpty) headers.putIfAbsent('Referer', () => ref);
+    // Header in Kodi-Schreibweise an den Link hängen ("url|User-Agent=..."); der Player trennt sie wieder ab.
+    // Hat der Link schon Header, kommen die übrigen dazu.
+    final extra = headers.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&');
+    final url = headers.isEmpty ? line : '$line${line.contains('|') ? '&' : '|'}$extra';
     headers.clear();
     final name = (title == null || title.isEmpty) ? (attrs['tvg-name'] ?? url) : title;
     final group = attrs['group-title']?.isNotEmpty == true
@@ -99,7 +115,7 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
     if (isSeries) {
       final m = _episode.firstMatch(name);
       final show = (m?.group(1)?.trim().isNotEmpty == true) ? m!.group(1)!.trim() : name;
-      final entry = series.putIfAbsent('$group|$show', () => (group: group, logo: logo, eps: []));
+      final entry = series.putIfAbsent('$group|$show', () => (group: group, show: show, logo: logo, eps: []));
       entry.eps.add(Episode(
         id: url,
         season: int.tryParse(m?.group(2) ?? '') ?? 1,
@@ -131,7 +147,7 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
       for (final e in series.entries)
         MediaItem(
           id: 'm3u-series:${e.key}',
-          name: e.key.substring(e.key.indexOf('|') + 1),
+          name: e.value.show, // nicht aus dem Schlüssel: Kategorien wie „DE | Serien“ enthalten selbst „|“
           kind: Kind.series,
           group: e.value.group,
           logo: e.value.logo,
@@ -140,4 +156,13 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
         ),
     ],
   };
+}
+
+/// Kodi-Werte sind meist kodiert, manchmal nicht („100%“): dann so lassen.
+String _decode(String s) {
+  try {
+    return Uri.decodeComponent(s);
+  } catch (_) {
+    return s;
+  }
 }
