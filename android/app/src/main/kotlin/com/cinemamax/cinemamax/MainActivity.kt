@@ -47,8 +47,9 @@ class MainActivity : FlutterActivity() {
     @Suppress("DEPRECATION")
     private fun linkOf(i: Intent?): String? = when (i?.action) {
         Intent.ACTION_VIEW -> i.dataString
-        Intent.ACTION_SEND -> i.getStringExtra(Intent.EXTRA_TEXT)
-            ?: (i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))?.toString()
+        // Geteilte Datei zuerst: Dateimanager legen oft zusätzlich den Dateinamen als Text bei
+        Intent.ACTION_SEND -> (i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))?.toString()
+            ?: i.getStringExtra(Intent.EXTRA_TEXT)
         else -> null
     }
 

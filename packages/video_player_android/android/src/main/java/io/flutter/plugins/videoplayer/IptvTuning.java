@@ -80,10 +80,10 @@ public final class IptvTuning {
   /** MPEG-TS: Streams ohne IDR-Start und mit fehlerhaften Zeitstempeln trotzdem abspielen. */
   @NonNull
   public static DefaultExtractorsFactory extractors() {
+    // Ohne FLAG_DETECT_ACCESS_UNITS: IPTV-Streams haben Access-Unit-Delimiter (ffmpeg setzt sie immer),
+    // mit dem Flag teilt ExoPlayer jedes Bild doppelt und zeigt nur ein Standbild, während der Ton läuft.
     return new DefaultExtractorsFactory()
-        .setTsExtractorFlags(
-            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES
-                | DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS)
+        .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES)
         .setConstantBitrateSeekingEnabled(true);
   }
 }

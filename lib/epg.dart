@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
+import 'playback.dart';
 import 'repo.dart';
 
 final epg = EpgStore();
@@ -79,7 +80,10 @@ class EpgStore extends ChangeNotifier {
     try {
       final client = http.Client();
       try {
-        final res = await client.send(http.Request('GET', Uri.parse(lib.epgUrl!))..headers.addAll(Repo.headers));
+        // Kodi-Header am EPG-Link erlaubt; Server, die nie antworten, blockieren sonst den Programmführer
+        final (url, headers) = Engine.splitHeaders(lib.epgUrl!, Repo.headers);
+        final res = await client.send(http.Request('GET', Uri.parse(url))..headers.addAll(headers))
+            .timeout(const Duration(seconds: 60));
         if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
         await res.stream.pipe(tmp.openWrite()); // auf Platte streamen statt ins RAM
       } finally {
@@ -105,7 +109,7 @@ Map<String, List<Prog>> _decode(String s) => {
     };
 
 final _progRe = RegExp(r'<programme\b([^>]*)>([\s\S]*?)</programme>');
-final _attrRe = RegExp(r'(\w+)="([^"]*)"');
+final _attrRe = RegExp(r'''(\w+)=(?:"([^"]*)"|'([^']*)')''');
 final _titleRe = RegExp(r'<title[^>]*>([\s\S]*?)</title>');
 final _descRe = RegExp(r'<desc[^>]*>([\s\S]*?)</desc>');
 
@@ -125,6 +129,11 @@ DateTime? xmltvTime(String s) {
 
 String _unescape(String s) => s
     .replaceAll(RegExp(r'<!\[CDATA\[|\]\]>'), '')
+    // Zeichen als Zahl: &#228; &#xE4;
+    .replaceAllMapped(RegExp(r'&#(x?)([0-9a-fA-F]+);'), (m) {
+      final c = int.tryParse(m[2]!, radix: m[1]!.isEmpty ? 10 : 16);
+      return c == null || c > 0x10FFFF ? m[0]! : String.fromCharCode(c);
+    })
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&quot;', '"')
@@ -164,7 +173,7 @@ Future<Map<String, List<Prog>>> _parseFile((String, Map<String, int>) a) async {
 @visibleForTesting
 void parseProgrammes(String s, Map<String, int> keep, DateTime now, DateTime maxFuture, Map<String, List<Prog>> out) {
   for (final m in _progRe.allMatches(s)) {
-    final attrs = {for (final a in _attrRe.allMatches(m[1]!)) a[1]!: a[2]!};
+    final attrs = {for (final a in _attrRe.allMatches(m[1]!)) a[1]!: a[2] ?? a[3]!};
     final ch = attrs['channel']?.toLowerCase();
     final hours = ch == null ? null : keep[ch];
     if (hours == null) continue;

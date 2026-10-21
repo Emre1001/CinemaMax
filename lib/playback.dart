@@ -38,10 +38,17 @@ abstract class Engine {
 
   /// Android: ExoPlayer, außer der Nutzer wählt mpv ([engine] überschreibt die Einstellung). PC: immer mpv.
   static Engine create([String url = '', String? engine]) {
-    // rtmp/udp/mms kann ExoPlayer nicht: dafür immer mpv
-    final exotic = RegExp(r'^(rtmp|rtmps|udp|rtp|mms|mmsh|srt)://', caseSensitive: false).hasMatch(url);
-    return Platform.isAndroid && (engine ?? store.get('engine', 'exo')) == 'exo' && !exotic ? ExoEngine() : MpvEngine();
+    // FLV-Filme kann ExoPlayer nicht spulen: mpv
+    final flv = RegExp(r'\.flv$', caseSensitive: false).hasMatch(Uri.tryParse(url)?.path ?? url);
+    return Platform.isAndroid && (engine ?? store.get('engine', 'exo')) == 'exo' && !exotic(url) && !flv
+        ? ExoEngine()
+        : MpvEngine();
   }
+
+  /// rtmp/udp/mms/srt kann ExoPlayer nicht: dafür immer mpv. RTSP auch: Media3 stürzt bei manchen
+  /// Servern im RtspClient ab (NullPointerException im Wiedergabe-Thread beendet die ganze App).
+  static bool exotic(String url) =>
+      RegExp(r'^(rtmp[a-z]?|rtsps?|udp|rtp|mms[ht]?|srt)://', caseSensitive: false).hasMatch(url);
 
   /// Kodi-Schreibweise "url|User-Agent=x&Referer=y": Header abtrennen.
   static (String, Map<String, String>) splitHeaders(String url, Map<String, String> base) {
@@ -50,9 +57,27 @@ abstract class Engine {
     final h = {...base};
     for (final part in url.substring(i + 1).split('&')) {
       final k = part.indexOf('=');
-      if (k > 0) h[Uri.decodeComponent(part.substring(0, k))] = Uri.decodeComponent(part.substring(k + 1));
+      if (k > 0) setHeader(h, _decode(part.substring(0, k)), _decode(part.substring(k + 1)));
     }
     return (url.substring(0, i), h);
+  }
+
+  /// Kodi-Werte sind meist kodiert, manchmal nicht („100%“): dann so lassen.
+  static String _decode(String s) {
+    try {
+      return Uri.decodeComponent(s);
+    } catch (_) {
+      return s;
+    }
+  }
+
+  /// Header ohne Doppel in anderer Schreibweise setzen („user-agent“ ersetzt „User-Agent“).
+  /// Schreibweise vereinheitlicht: ExoPlayer erkennt den User-Agent nur als „User-Agent“.
+  static void setHeader(Map<String, String> h, String name, String value) {
+    var key = name.trim().split('-').map((p) => p.isEmpty ? p : p[0].toUpperCase() + p.substring(1).toLowerCase()).join('-');
+    if (key == 'Referrer') key = 'Referer';
+    h.removeWhere((k, _) => k.toLowerCase() == key.toLowerCase());
+    h[key] = value.trim();
   }
 
   Future<void> open(String url, Map<String, String> headers, {Duration? start});
@@ -120,6 +145,13 @@ abstract class Engine {
   Future<void> setAudioDelay(double seconds) async {}
   Future<void> setSubDelay(double seconds) async {}
 
+  /// Spur passt zu einer Sprache: ganzes Wort („de“, „deu“) oder Wortanfang ab 3 Zeichen („ger“ → „German“),
+  /// nicht „de“ in „Description“.
+  static bool langMatch(String label, List<String> want) {
+    final words = RegExp(r'\p{L}+', unicode: true).allMatches(label.toLowerCase()).map((m) => m[0]!).toList();
+    return want.any((l) => words.any((w) => w == l || (l.length >= 3 && w.startsWith(l))));
+  }
+
   /// Bevorzugte Sprachen aus den Einstellungen, z. B. ['de', 'deu', 'ger'].
   static List<String> langs(String key) =>
       store.get(key, 'de,deu,ger').split(',').where((s) => s.isNotEmpty).toList();
@@ -132,6 +164,7 @@ class ExoEngine extends Engine {
   bool _completedSent = false;
 
   VideoPlayerController? get _c => _ctrl.value;
+  static const _unknownDurationMs = 9223372036854775; // Long.MAX_VALUE / 1000, wie im Plugin
   int _gen = 0;
   bool _disposed = false;
 
@@ -184,9 +217,11 @@ class ExoEngine extends Engine {
       _checkSize(c);
     }
     final err = v.hasError ? v.errorDescription : null;
+    // Live-MPEG-TS ohne Länge: das Plugin meldet eine riesige Dauer (siehe UNKNOWN_DURATION_MS), hier 0 = unbekannt
+    final unknown = v.duration.inMilliseconds >= _unknownDurationMs;
     state.value = PlaybackState(
       position: v.position,
-      duration: v.duration,
+      duration: unknown ? Duration.zero : v.duration,
       buffered: v.buffered.isEmpty ? Duration.zero : v.buffered.last.end,
       playing: v.isPlaying,
       buffering: v.isBuffering || !v.isInitialized,
@@ -268,7 +303,7 @@ class ExoEngine extends Engine {
     final want = Engine.langs('audioLang');
     if (want.isEmpty) return;
     for (final t in await audioTracks()) {
-      if (want.any((l) => t.label.toLowerCase().contains(l))) return selectAudio(t.id);
+      if (Engine.langMatch(t.label, want)) return selectAudio(t.id);
     }
   }
 
@@ -347,8 +382,12 @@ class ExoEngine extends Engine {
                 color: Colors.black,
                 child: LayoutBuilder(builder: (_, box) {
                   final dest = applyBoxFit(fit, v.size, box.biggest).destination;
+                  // Mindestmaße setzen: sonst erbt die Box die Bildschirmbreite als Minimum und ein schmaleres
+                  // Bild (16:9 auf einem 20:9-Handy) ergibt ungültige Maße, das Video bleibt schwarz
                   return ClipRect(
                     child: OverflowBox(
+                      minWidth: dest.width,
+                      minHeight: dest.height,
                       maxWidth: dest.width,
                       maxHeight: dest.height,
                       child: SizedBox(width: dest.width, height: dest.height, child: VideoPlayer(c)),
@@ -420,11 +459,22 @@ class MpvEngine extends Engine {
         if (c) onCompleted?.call();
       }),
       _p.stream.error.listen((e) {
+        // https-Link auf einen Server, der nur http spricht: einmal mit http versuchen (wie bei ExoPlayer)
+        final u = _opened;
+        // Nur bei Verbindungsfehlern, nicht bei Decoder-Meldungen
+        if (!_ready && u != null && u.$1.toLowerCase().startsWith('https://') &&
+            RegExp(r'failed to open|tls|ssl|handshake', caseSensitive: false).hasMatch(e)) {
+          _opened = null;
+          _p.open(mk.Media('http://${u.$1.substring(8)}', httpHeaders: u.$2, start: u.$3));
+          return;
+        }
         _ready = false;
         state.value = PlaybackState(buffering: false, error: e);
       }),
     ]);
   }
+
+  (String, Map<String, String>, Duration?)? _opened; // für den http-Rückfall, null = schon versucht
 
   bool _configured = false;
   Future<void> _configure() async {
@@ -435,6 +485,12 @@ class MpvEngine extends Engine {
     Future<void> set(String k, String v) => np.setProperty(k, v).catchError((_) {});
     await set('network-timeout', '20');
     await set('volume-max', '150');
+    // media_kit übergibt jeden Link als Playlist: ohne das verweigert mpv udp://, rtp:// …
+    await set('load-unsafe-playlists', 'yes');
+    // RTSP: erst UDP, dann TCP (ffmpeg-Standard); mpv nimmt sonst nur TCP, das viele Server ablehnen (461)
+    await set('rtsp-transport', 'lavf');
+    // Stream-Analyse begrenzen: HLS mit Untertitel-Spur (z. B. ARD/ZDF) wartet sonst endlos auf Untertitel-Pakete
+    await set('demuxer-lavf-o', 'analyzeduration=3000000');
     final a = Engine.langs('audioLang'), s = Engine.langs('subLang');
     if (a.isNotEmpty) await set('alang', a.join(','));
     if (s.isNotEmpty) await set('slang', s.join(','));
@@ -461,6 +517,11 @@ class MpvEngine extends Engine {
     _ready = false;
     qualityId = null;
     state.value = const PlaybackState();
+    // Leerzeichen/Umlaute im Pfad schickt ffmpeg roh: Server antworten dann mit 400
+    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(url) && RegExp(r'[^\x21-\x7E]|["<>\\^`{}]').hasMatch(url)) {
+      url = Uri.parse(url).toString();
+    }
+    _opened = (url, headers, start);
     await _p.open(mk.Media(url, httpHeaders: headers, start: start));
   }
 

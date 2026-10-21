@@ -9,11 +9,12 @@ import 'package:path_provider/path_provider.dart';
 
 import 'i18n.dart';
 import 'errors.dart';
+import 'external_player.dart';
 import 'store.dart';
 import 'ui/common.dart';
 
 /// Installierte Version. Muss zu `version:` in pubspec.yaml passen (test/update_test.dart prüft das).
-const appVersion = '1.6.5';
+const appVersion = '1.6.6';
 const _repo = 'Emre1001/CinemaMax';
 
 typedef Release = ({String version, String page, String? asset});
@@ -101,7 +102,8 @@ Future<void> _install(BuildContext c, Release rel) async {
   if (asset == null) {
     // deb/rpm brauchen Root: Release-Seite im Browser öffnen
     try {
-      await Process.start(Platform.isWindows ? 'explorer' : 'xdg-open', [rel.page]);
+      await Process.start(Platform.isWindows ? 'explorer' : 'xdg-open', [rel.page],
+          environment: ExternalPlayer.hostEnvironment());
     } catch (_) {
       if (c.mounted) toast(c, rel.page);
     }
@@ -194,7 +196,7 @@ Future<void> _install(BuildContext c, Release rel) async {
   } else {
     await Process.run('chmod', ['755', target.path]);
     await target.rename(appImage!);
-    await Process.start(appImage, const [], mode: ProcessStartMode.detached);
+    await Process.start(appImage, const [], mode: ProcessStartMode.detached, environment: ExternalPlayer.hostEnvironment());
     exit(0);
   }
 }

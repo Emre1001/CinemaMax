@@ -99,7 +99,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 - **ExoPlayer** auf Android, für IPTV angepasst (Software-Decoder als Rückfall, lange Timeouts, TS ohne Keyframe-Start)
 - **libmpv** auf Linux und Windows, auf Android wählbar
 - **Externe Player**: VLC (Android, Linux, Windows) und MX Player (Android), für alles oder einzeln über „Mehr“; Android merkt sich die Stelle zum Weiterschauen
-- HLS, MPEG-TS, MP4, MKV, DASH, RTSP, RTMP, UDP
+- HLS, MPEG-TS, MP4, MKV, DASH, RTSP, RTMP, UDP, SRT (SRT/MMS auf Android über VLC)
 - **Auflösung wählen** (Automatisch, 1080p, 720p …) bei HLS/DASH
 - **Daten sparen**: maximale Auflösung festlegen (z. B. 480p bei langsamem Internet)
 - Scheitert ein Player, springt automatisch der andere ein (Android: ExoPlayer ↔ mpv)
@@ -295,6 +295,25 @@ flutter build windows --release
 
 </details>
 
+<details>
+<summary><b>🧪 Kompatibilitätstest mit echtem Player</b></summary>
+
+Erzeugt Testvideos in allen Formaten, startet einen Test-IPTV-Server (HTTP/HTTPS, HLS, DASH, Live-TS, Xtream,
+Stalker, RTMP, RTSP, UDP, SRT) und spielt alles im echten Player ab: Typ-Erkennung, Start, Spulen, Standbild-Erkennung,
+Quellen, Downloads, Aufnahmen. Braucht `ffmpeg`, `vlc` und Python mit Pillow.
+
+```bash
+tool/compat/start.sh /tmp/cmx-test   # Server laufen lassen
+# Linux: Ergebnis als Zeilen „COMPAT PASS/FAIL …“ (eigenes HOME: Testserver/-downloads landen nicht in den echten App-Daten)
+flutter build linux -t tool/compat_probe.dart --dart-define=SHOTS=true
+mkdir -p /tmp/cmx-test/home && XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority} HOME=/tmp/cmx-test/home build/linux/x64/release/bundle/cinemamax
+# Android (Emulator: Host 10.0.2.2; UDP vorher: adb emu redir add udp:5000:5000)
+flutter build apk --debug -t tool/compat_probe.dart --dart-define=HOST=10.0.2.2 --dart-define=ENGINE=exo --dart-define=SHOTS=true
+tool/compat/run_android.py build/app/outputs/flutter-apk/app-debug.apk ergebnis.txt
+```
+
+</details>
+
 Ein Tag `v*` startet [GitHub Actions](.github/workflows/build.yml) und baut Android, Linux und Windows automatisch.
 
 <details>
@@ -312,6 +331,7 @@ Ein Tag `v*` startet [GitHub Actions](.github/workflows/build.yml) und baut Andr
 | `packages/video_player_android` | `video_player_android` mit IPTV-Anpassungen (`IptvTuning.java`) |
 | `docs/` | Website (GitHub Pages) |
 | `tool/make_intro_sound.py` | erzeugt den Startton |
+| `tool/compat_probe.dart`, `tool/compat/` | Kompatibilitätstest mit echtem Player und Test-IPTV-Server |
 
 </details>
 

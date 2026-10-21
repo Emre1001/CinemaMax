@@ -50,22 +50,38 @@ class ExternalPlayer {
       if (headers['Referer'] != null) '--http-referrer=${headers['Referer']}',
       if (start != null && start > Duration.zero) '--start-time=${start.inSeconds}',
       url,
-    ], mode: ProcessStartMode.detached);
+    ], mode: ProcessStartMode.detached, environment: hostEnvironment());
     return null;
+  }
+
+  /// AppImage: eigene Bibliotheken nicht an fremde Programme vererben (VLC, Browser stürzen sonst ab).
+  static Map<String, String>? hostEnvironment() {
+    final dir = Platform.environment['APPDIR'];
+    if (!Platform.isLinux || dir == null) return null;
+    final paths = (Platform.environment['LD_LIBRARY_PATH'] ?? '').split(':');
+    return {'LD_LIBRARY_PATH': paths.where((p) => p.isNotEmpty && !p.startsWith(dir)).join(':')};
   }
 
   /// VLC am PC: Programm im Pfad, Flatpak (Linux) oder Standard-Installationsordner (Windows).
   static Future<List<String>?> _vlcCommand() async {
     if (Platform.isWindows) {
-      for (final dir in [Platform.environment['ProgramFiles'], Platform.environment['ProgramFiles(x86)']]) {
+      final env = Platform.environment;
+      for (final dir in [env['ProgramFiles'], env['ProgramFiles(x86)'], env['ProgramW6432'], env['LOCALAPPDATA']]) {
         final exe = '$dir\\VideoLAN\\VLC\\vlc.exe';
         if (dir != null && File(exe).existsSync()) return [exe];
       }
+      // Portable oder anders installiert, aber im PATH
+      try {
+        final r = await Process.run('where', ['vlc.exe']);
+        final exe = '${r.stdout}'.split(RegExp(r'[\r\n]+')).first.trim();
+        if (r.exitCode == 0 && exe.isNotEmpty) return [exe];
+      } catch (_) {/* where fehlt */}
       return null;
     }
     if (!Platform.isLinux) return null;
     try {
-      if ((await Process.run('which', ['vlc'])).exitCode == 0) return ['vlc'];
+      // „which“ fehlt auf manchen Distributionen; „command -v“ kennt jede Shell (auch Snap: /snap/bin)
+      if ((await Process.run('sh', ['-c', 'command -v vlc'])).exitCode == 0) return ['vlc'];
       if ((await Process.run('flatpak', ['info', 'org.videolan.VLC'])).exitCode == 0) {
         return ['flatpak', 'run', 'org.videolan.VLC'];
       }

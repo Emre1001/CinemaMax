@@ -45,6 +45,10 @@ String explain(Object e, {bool playback = false}) {
   if (has(['login fehlgeschlagen'])) return tr('Anmeldung fehlgeschlagen. Benutzername und Passwort prüfen.');
   if (has(['keinen stream-link'])) return tr('Für diesen Eintrag liefert das Portal keinen Stream.');
   if (playback) {
+    // Die mpv-Bibliothek für Android enthält kein SRT und kein MMS
+    if (Platform.isAndroid && has(['srt://', 'mms://', 'mmsh://', 'mmst://'])) {
+      return tr('Dieses Streaming-Protokoll (SRT/MMS) kann der eingebaute Player auf Android nicht. Mit VLC öffnen.');
+    }
     if (has(['decoder', 'mediacodec', 'exceeds_capabilities', 'unsupported', 'codec'])) {
       return tr('Dieses Gerät kann das Videoformat nicht abspielen (z. B. 4K/HEVC). Unter Einstellungen den Player „mpv“ versuchen.');
     }
@@ -53,6 +57,9 @@ String explain(Object e, {bool playback = false}) {
     }
     if (has(['behindlivewindow'])) return tr('Der Live-Stream ist zu weit zurück. Erneut versuchen.');
     return tr('Der Stream kann nicht abgespielt werden. Der Sender ist vielleicht offline oder überlastet.');
+  }
+  if (has(['keine playlist'])) {
+    return tr('Das ist ein einzelner Video-Stream, keine Playlist. Über „Link öffnen“ direkt abspielen.');
   }
   if (e is FormatException) return tr('Der Server liefert keine gültigen Daten. Ist das wirklich ein IPTV-Zugang?');
   if (e is FileSystemException) {
@@ -76,7 +83,8 @@ void reportError(Object e, [StackTrace? st]) {
   final now = DateTime.now();
   if (now.difference(_lastReport) < const Duration(seconds: 3)) return;
   _lastReport = now;
-  messengerKey.currentState?.showSnackBar(SnackBar(content: Text(tr('Fehler: {0}', [explain(e)]))));
+  // Nicht mitten im Bauen/Zeichnen anzeigen (Fehler kommen oft genau dort): sonst Folgefehler
+  Timer.run(() => messengerKey.currentState?.showSnackBar(SnackBar(content: Text(tr('Fehler: {0}', [explain(e)])))));
 }
 
 /// Ersetzt den grauen/roten Fehlerbildschirm eines kaputten Bausteins.

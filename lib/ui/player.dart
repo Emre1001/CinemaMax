@@ -141,7 +141,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (state == AppLifecycleState.resumed) _immersive();
   }
 
-  late final Engine _e = Engine.create(widget.list[widget.index].url, widget.engine);
+  late final Engine _e = Engine.create(
+      widget.list[widget.index].url, widget.engine ?? downloads.engineFor(widget.list[widget.index].url));
   bool _leaving = false;
   final _root = FocusNode(debugLabel: 'player');
   final _playBtn = FocusNode(debugLabel: 'play');
@@ -312,7 +313,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         widget.engine == null &&
         !_leaving &&
         store.get('autoMpv', true) &&
-        !(other == 'exo' && _exotic(_cur.url))) {
+        !(other == 'exo' && Engine.exotic(_cur.url))) {
       _leaving = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -1422,6 +1423,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           color: Colors.black,
           child: ClipRect(
             child: OverflowBox(
+              // 1:1 auch bei Videos kleiner als der Bildschirm (sonst gilt die Bildschirmgröße als Minimum)
+              minWidth: 0,
+              minHeight: 0,
               maxWidth: double.infinity,
               maxHeight: double.infinity,
               child: SizedBox(width: px.width, height: px.height, child: _e.view(BoxFit.fill)),
@@ -1649,10 +1653,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     store.set('engine', _e is ExoEngine ? 'mpv' : 'exo');
     _replace(null);
   }
-
-  /// rtmp/udp/… kann nur mpv: dorthin kein Wechsel zu ExoPlayer.
-  static bool _exotic(String url) =>
-      RegExp(r'^(rtmp|rtmps|udp|rtp|mms|mmsh|srt)://', caseSensitive: false).hasMatch(url);
 
   /// Gleiche Liste und Folge mit anderem Player neu öffnen (Position kommt aus dem Verlauf).
   void _replace(String? engine) {
