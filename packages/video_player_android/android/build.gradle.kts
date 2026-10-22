@@ -59,6 +59,8 @@ android {
         implementation("androidx.media3:media3-exoplayer-dash:${exoplayerVersion}")
         implementation("androidx.media3:media3-exoplayer-rtsp:${exoplayerVersion}")
         implementation("androidx.media3:media3-exoplayer-smoothstreaming:${exoplayerVersion}")
+        // FFmpeg-Tondecoder (AC3, E-AC3, DTS, TrueHD …) für Geräte ohne eigenen Decoder; Lizenz GPLv3
+        implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1")
         testImplementation("junit:junit:4.13.2")
         testImplementation("androidx.test:core:1.7.0")
         testImplementation("org.mockito:mockito-core:5.23.0")

@@ -8,10 +8,13 @@ import 'package:media_kit/media_kit.dart';
 import 'downloads.dart';
 import 'errors.dart';
 import 'links.dart';
+import 'perf.dart';
+import 'playback.dart';
 import 'store.dart';
 import 'ui/common.dart';
+import 'ui/fx.dart';
+import 'ui/setup.dart';
 import 'ui/splash.dart';
-import 'ui/start.dart';
 import 'i18n.dart';
 
 Future<void> main(List<String> args) async {
@@ -43,12 +46,14 @@ Future<void> main(List<String> args) async {
     }
   }
   await store.init();
+  await Perf.init();
   await downloads.init();
   await Links.init(args);
   if (Platform.isAndroid) {
     try {
       isAndroidTv = await const MethodChannel('cinemamax/device').invokeMethod<bool>('isTv') ?? false;
     } catch (_) {}
+    await Engine.detectScreen();
   }
   runApp(const App());
   if (mpvMissing != null) {
@@ -100,7 +105,13 @@ class _AppState extends State<App> {
       outlinedButtonTheme: OutlinedButtonThemeData(style: ring),
       iconButtonTheme: IconButtonThemeData(style: ring),
       colorScheme: scheme,
-      scaffoldBackgroundColor: bg,
+      // Seiten durchsichtig: darunter liegt der gemeinsame Hintergrund (MaterialApp.builder)
+      scaffoldBackgroundColor: Colors.transparent,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+      ),
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
       dialogTheme: const DialogThemeData(backgroundColor: surface),
@@ -119,9 +130,9 @@ class _AppState extends State<App> {
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
-          TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
-          TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.android: FxPageTransitions(),
+          TargetPlatform.linux: FxPageTransitions(),
+          TargetPlatform.windows: FxPageTransitions(),
         },
       ),
     );
@@ -136,13 +147,15 @@ class _AppState extends State<App> {
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: messengerKey,
       theme: theme,
+      // Ruhender Farbwolken-Hintergrund unter allen Seiten (Speed-Modus: schlicht)
+      builder: (_, child) => Stack(children: [const Positioned.fill(child: Backdrop(moving: false)), ?child]),
       scrollBehavior: const MaterialScrollBehavior().copyWith(
         dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},
       ),
       // Startanimation nur beim ersten Aufbau, nicht bei Sprachwechsel
       home: store.get('intro', true) && !store.reduceMotion && !_introShown
           ? const SplashScreen()
-          : const StartScreen(),
+          : firstScreen(),
     );
     _introShown = true;
     return app;

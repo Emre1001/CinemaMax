@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart' as mkv;
 import 'package:video_player/video_player.dart';
@@ -101,19 +103,59 @@ abstract class Engine {
   /// Bildhöhe je Qualität (von [qualities] gefüllt), für die Datenspar-Grenze.
   final qualityHeight = <String, int>{};
 
-  /// Beste Qualität bis [maxHeight] wählen (Daten sparen). false = Stream hat keine Stufen.
+  /// Beste Qualität bis [maxHeight] wählen (Daten sparen). null = Stream hat (noch) keine Stufen,
+  /// '' = die beste Stufe passt schon, Automatik bleibt.
   Future<String?> capQuality(int maxHeight) async {
     final list = await qualities();
     if (list.isEmpty) return null;
-    for (final q in list) {
-      if ((qualityHeight[q.id] ?? 0) <= maxHeight) {
-        await selectQuality(q.id);
-        return q.label;
+    if (fits(qualityHeight[list.first.id] ?? 0, maxHeight)) return '';
+    // Alles höher als erlaubt: kleinste Stufe
+    final q = list.firstWhere((q) => fits(qualityHeight[q.id] ?? 0, maxHeight), orElse: () => list.last);
+    if (!nativeCap) await selectQuality(q.id);
+    return q.label;
+  }
+
+  /// Der Player begrenzt die Auflösung schon selbst (ExoPlayer: IptvTuning), keine feste Spur nötig.
+  bool get nativeCap => false;
+
+  /// Bildhöhe wie bei 16:9: Kinoformat (1920×800) zählt wie 1080p, 3440×1440 wie 1935p.
+  static int height16x9(int width, int height) => max(height, width * 9 ~/ 16);
+
+  /// Etwas Spielraum, damit 1920×1088 noch als 1080p gilt.
+  static bool fits(int height, int maxHeight) => height <= maxHeight * 17 ~/ 16;
+
+  static int _androidScreen = 0;
+
+  /// Android: Bildschirm nativ abfragen. Fernseher melden Flutter oft nur die 1080p-Oberfläche statt 4K.
+  static Future<void> detectScreen() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final s = await const MethodChannel('cinemamax/device').invokeListMethod<int>('displaySize');
+      if (s != null && s.length == 2) _androidScreen = height16x9(max(s[0], s[1]), min(s[0], s[1]));
+    } catch (_) {}
+  }
+
+  /// Bildschirmhöhe wie bei 16:9 (Handy 2400×1080 = 1350), 0 = unbekannt. PC: Bildschirm des Fensters.
+  static int get screenHeight {
+    if (Platform.isAndroid) return _androidScreen;
+    final d = WidgetsBinding.instance.platformDispatcher;
+    Size? s;
+    try {
+      s = d.implicitView?.display.size;
+    } catch (_) {/* Bildschirm nicht gemeldet */}
+    if (s == null || s.isEmpty) {
+      for (final x in d.displays) {
+        if (s == null || x.size.height > s.height) s = x.size;
       }
     }
-    // Alles höher als erlaubt: kleinste Stufe
-    await selectQuality(list.last.id);
-    return list.last.label;
+    if (s == null || s.isEmpty) return 0;
+    return height16x9(max(s.width, s.height).round(), min(s.width, s.height).round());
+  }
+
+  /// Höchste Bildhöhe für Streams aus „Bildschirmauflösung“: automatisch die des Bildschirms. 0 = keine Grenze.
+  static int get maxHeight {
+    final v = store.get('maxRes', -1);
+    return v < 0 ? screenHeight : v;
   }
 
   /// "4K", "1080p" aus der Bildgröße. Kinofilme in 4K sind oft 3840×1600: daher auch die Breite prüfen.
@@ -350,7 +392,7 @@ class ExoEngine extends Engine {
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
       _videoTracks[t.id] = t;
       // Kinoformat (1920×800) zählt wie 1080p: Höhe aus der Breite ableiten
-      qualityHeight[t.id] = (t.height ?? 0) > (t.width ?? 0) * 9 ~/ 16 ? t.height ?? 0 : (t.width ?? 0) * 9 ~/ 16;
+      qualityHeight[t.id] = Engine.height16x9(t.width ?? 0, t.height ?? 0);
       out.add((id: t.id, label: label));
     }
     return out.length > 1 ? out : [];
@@ -361,6 +403,10 @@ class ExoEngine extends Engine {
     qualityId = id;
     await _c?.selectVideoTrack(id == null ? null : _videoTracks[id]);
   }
+
+  // IptvTuning begrenzt beim Erstellen des Players: HLS schaltet bei langsamem Netz weiter herunter
+  @override
+  bool get nativeCap => true;
 
   // shortcut: ExoPlayer über video_player zeigt keine eingebetteten Untertitel; dafür Engine "mpv" wählen
   @override
@@ -458,6 +504,18 @@ class MpvEngine extends Engine {
       _p.stream.completed.listen((c) {
         if (c) onCompleted?.call();
       }),
+      // 4K auf kleinerem Bildschirm: nur in Bildschirmgröße rendern, spart GPU/CPU (Android: Größe fest im Plugin)
+      if (!Platform.isAndroid)
+        _p.stream.videoParams.listen((p) {
+          final (w, h) = (p.rotate ?? 0) % 180 == 0 ? (p.dw ?? 0, p.dh ?? 0) : (p.dh ?? 0, p.dw ?? 0);
+          final screen = Engine.screenHeight, video = Engine.height16x9(w, h);
+          if (w <= 0 || h <= 0) return;
+          if (screen <= 0 || Engine.fits(video, screen)) {
+            _video.setSize().catchError((_) {});
+          } else {
+            _video.setSize(width: w * screen ~/ video, height: h * screen ~/ video).catchError((_) {});
+          }
+        }),
       _p.stream.error.listen((e) {
         // https-Link auf einen Server, der nur http spricht: einmal mit http versuchen (wie bei ExoPlayer)
         final u = _opened;
@@ -489,8 +547,12 @@ class MpvEngine extends Engine {
     await set('load-unsafe-playlists', 'yes');
     // RTSP: erst UDP, dann TCP (ffmpeg-Standard); mpv nimmt sonst nur TCP, das viele Server ablehnen (461)
     await set('rtsp-transport', 'lavf');
-    // Stream-Analyse begrenzen: HLS mit Untertitel-Spur (z. B. ARD/ZDF) wartet sonst endlos auf Untertitel-Pakete
-    await set('demuxer-lavf-o', 'analyzeduration=3000000');
+    // Stream-Analyse begrenzen: HLS mit Untertitel-Spur (z. B. ARD/ZDF) wartet sonst endlos auf Untertitel-Pakete.
+    // Anhängen statt ersetzen: media_kits seg_max_retry=5 (HLS-Segmente erneut laden statt Ruckler) bleibt erhalten
+    await np.command(['change-list', 'demuxer-lavf-o', 'append', 'analyzeduration=3000000']).catchError((_) {});
+    // Live-Streams kommen nur in Echtzeit: erst 2 s puffern, sonst läuft der Puffer bei jeder Schwankung leer (Ruckeln)
+    await set('cache-pause-initial', 'yes');
+    await set('cache-pause-wait', '2');
     final a = Engine.langs('audioLang'), s = Engine.langs('subLang');
     if (a.isNotEmpty) await set('alang', a.join(','));
     if (s.isNotEmpty) await set('slang', s.join(','));
@@ -616,7 +678,7 @@ class MpvEngine extends Engine {
     for (final t in tracks) {
       final label = Engine.qualityLabel(t.w, t.h, t.bitrate);
       if (label.isEmpty || out.any((o) => o.label == label)) continue;
-      qualityHeight[t.id] = (t.h ?? 0) > (t.w ?? 0) * 9 ~/ 16 ? t.h ?? 0 : (t.w ?? 0) * 9 ~/ 16;
+      qualityHeight[t.id] = Engine.height16x9(t.w ?? 0, t.h ?? 0);
       out.add((id: t.id, label: label));
     }
     return out.length > 1 ? out : [];

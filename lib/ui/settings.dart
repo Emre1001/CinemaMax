@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../downloads.dart';
+import '../external_player.dart';
 import '../i18n.dart';
+import '../playback.dart';
 
 import '../repo.dart';
 import '../store.dart';
 import '../update.dart';
 import 'common.dart';
+import 'fx.dart';
+import 'setup.dart';
 import 'start.dart';
 
 /// Eine Einstellung: ohne [options] ein Schalter, sonst eine Auswahl.
@@ -38,6 +42,20 @@ const _langs = {
 
 final _desktop = Platform.isLinux || Platform.isWindows;
 
+/// Akzentfarben zur Auswahl (Einstellungen und Einrichtung).
+const accentColors = <Object, String>{
+  0xFF3E8BFF: 'Blau',
+  0xFF2563EB: 'Königsblau',
+  0xFF00B2CC: 'Cyan',
+  0xFF14B8A6: 'Türkis',
+  0xFF30A46C: 'Grün',
+  0xFFE5A23A: 'Bernstein',
+  0xFFE5484D: 'Rot',
+  0xFFE93D82: 'Pink',
+  0xFF8E4EC6: 'Violett',
+  0xFFEDEDED: 'Weiß',
+};
+
 /// Kategorie der Einstellungen: Einträge sind [_Opt] (Schalter/Auswahl) oder [_Act] (Aktion).
 class _Cat {
   final String title, summary;
@@ -54,24 +72,12 @@ class _Act {
   const _Act(this.key, this.label, {this.hint, this.toggle});
 }
 
-final _cats = <_Cat>[
+// Getter: die erkannte Bildschirmauflösung steht in der aktuellen Sprache im Text
+List<_Cat> get _cats => [
   _Cat('Darstellung', 'Sprache, Farbe, Oberfläche', Icons.palette_outlined, [
     _Opt('lang', 'Sprache', 'system', options: Map<Object, String>.from(languages)),
     const _Opt('accent', 'Akzentfarbe', Store.defaultAccent,
-        hint: 'Farbe der ganzen Oberfläche',
-        options: {
-          0xFF3E8BFF: 'Blau',
-          0xFF2563EB: 'Königsblau',
-          0xFF00B2CC: 'Cyan',
-          0xFF14B8A6: 'Türkis',
-          0xFF30A46C: 'Grün',
-          0xFFE5A23A: 'Bernstein',
-          0xFFE5484D: 'Rot',
-          0xFFE93D82: 'Pink',
-          0xFF8E4EC6: 'Violett',
-          0xFFEDEDED: 'Weiß',
-          -1: 'Eigene Farbe …',
-        }),
+        hint: 'Farbe der ganzen Oberfläche', options: {...accentColors, -1: 'Eigene Farbe …'}),
     const _Opt('layout', 'Oberfläche', 'auto',
         hint: 'Automatisch erkennt Handy, Tablet, TV und PC',
         options: {'auto': 'Automatisch', 'phone': 'Handy', 'tv': 'Fernseher', 'desktop': 'PC / Tablet'}),
@@ -81,6 +87,14 @@ final _cats = <_Cat>[
         hint: 'Hell macht dunkle Logos sichtbar', options: {'dark': 'Dunkel', 'light': 'Hell'}),
     const _Opt('showLogos', 'Logos und Poster laden', true, hint: 'Aus spart Datenvolumen'),
     const _Opt('clock', 'Uhr anzeigen', true),
+    const _Opt('perf', 'Leistung', 'auto',
+        hint: 'Schwache Geräte laufen mit weniger Effekten flüssiger',
+        options: {
+          'auto': 'Automatisch',
+          'full': 'Alle Effekte',
+          'lite': 'Flüssig (schwaches Gerät)',
+          'speed': 'Speed (ohne Animationen und Effekte)',
+        }),
     const _Opt('reduceMotion', 'Animationen reduzieren', false, hint: 'Für langsame TV-Boxen'),
   ]),
   _Cat('Player', 'ExoPlayer/mpv, Bildformat, Bedienung', Icons.play_circle_outline_rounded, [
@@ -89,11 +103,19 @@ final _cats = <_Cat>[
         options: {'exo': 'ExoPlayer (empfohlen)', 'mpv': 'mpv'},
         visible: () => Platform.isAndroid),
     _Opt('extPlayer', 'Externer Player', '',
-        hint: 'Alles in VLC oder MX Player abspielen (muss installiert sein). Einzeln: im Player unter „Mehr“',
-        options: {'': 'Aus (eingebauter Player)', 'vlc': 'VLC', if (Platform.isAndroid) 'mx': 'MX Player'}),
+        hint: 'Alles in einem anderen Player abspielen (muss installiert sein). Einzeln: im Player unter „Mehr“',
+        options: {
+          '': 'Aus (eingebauter Player)',
+          for (final e in ExternalPlayer.names.entries)
+            if (Platform.isAndroid || ExternalPlayer.desktop.contains(e.key)) e.key: e.value,
+        }),
     _Opt('autoMpv', 'Bei Fehlern anderen Player versuchen', true,
         hint: 'ExoPlayer und mpv springen füreinander ein (z. B. bei 4K oder DTS-Ton)',
         visible: () => Platform.isAndroid),
+    _Opt('ffmpegAudio', 'FFmpeg-Tondecoder', 'on',
+        hint: 'Spielt AC3, E-AC3, DTS und TrueHD auch ohne Decoder im Gerät',
+        options: {'on': 'Wenn nötig (empfohlen)', 'prefer': 'Immer FFmpeg', 'off': 'Aus'},
+        visible: () => Platform.isAndroid && store.get('engine', 'exo') == 'exo'),
     _Opt('surfaceView', 'Videoausgabe SurfaceView', isAndroidTv,
         hint: 'Echtes 4K und richtige HDR-Farben, schneller auf TV-Boxen (Fernseher: an)',
         visible: () => Platform.isAndroid && store.get('engine', 'exo') == 'exo'),
@@ -139,9 +161,22 @@ final _cats = <_Cat>[
     const _Opt('normalize', 'Lautstärke angleichen', false, hint: 'Nachtmodus: leise Dialoge lauter'),
   ]),
   _Cat('Qualität & Daten', 'Auflösung, Downloads, Daten sparen', Icons.high_quality_outlined, [
-    const _Opt('maxRes', 'Maximale Auflösung (Daten sparen)', 0,
-        hint: 'Für langsames Internet oder mobile Daten. Nur bei Streams mit mehreren Qualitäten (meist HLS)',
-        options: {0: 'Beste (automatisch)', 1080: '1080p', 720: '720p', 480: '480p (spart Daten)', 360: '360p (sehr langsames Internet)'}),
+    _Opt('maxRes', 'Bildschirmauflösung', -1,
+        hint: 'Streams nie höher laden als der Bildschirm zeigt: spart Daten und Leistung. Kleiner wählen bei langsamem Internet',
+        options: {
+          -1: Engine.screenHeight > 0
+              ? tr('Automatisch ({0})', [Engine.resolution(0, Engine.screenHeight)])
+              : 'Automatisch',
+          0: 'Keine Grenze (beste Qualität)',
+          2160: '4K (2160p)',
+          1440: '1440p (2K)',
+          1080: '1080p (Full HD)',
+          720: '720p (HD)',
+          480: '480p',
+          360: '360p',
+          240: '240p',
+          144: '144p',
+        }),
     const _Opt('dlQuality', 'Download-Qualität', -1,
         hint: 'Kleinere Auflösung spart Speicher. Wählbar bei Streams mit mehreren Qualitäten (HLS); MP4/MKV gibt es nur in einer',
         options: {-1: 'Jedes Mal fragen', 0: 'Beste', 1080: '1080p', 720: '720p', 480: '480p (spart Speicher)', 360: '360p (sehr klein)'}),
@@ -177,6 +212,8 @@ final _cats = <_Cat>[
         options: {'mine': 'Start', 'live': 'Live TV', 'guide': 'TV-Guide', 'movie': 'Filme', 'series': 'Serien'}),
     const _Opt('updateCheck', 'Nach Updates fragen', true, hint: 'Beim Start prüfen, ob eine neue Version da ist'),
     _Act('update', 'Nach Updates suchen', hint: () => tr('Installiert: {0}', [appVersion])),
+    _Act('setup', 'Einrichtung erneut starten', hint: () => tr('Sprache, Aussehen, Bildschirm und Geräte-Check')),
+    _Act('check', 'Geräte-Check', hint: () => tr('Welche Formate dein Gerät abspielt')),
   ]),
   _Cat('Kindersicherung', 'PIN, ausgeblendete Inhalte', Icons.lock_outline_rounded, [
     const _Opt('hideAdult', 'Erwachseneninhalte ausblenden', true, hint: 'Mit PIN schützbar'),
@@ -203,7 +240,7 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(backgroundColor: bg, title: Text(tr('Einstellungen'), style: TextStyle(fontWeight: FontWeight.w700))),
+        appBar: AppBar(title: Text(tr('Einstellungen'), style: TextStyle(fontWeight: FontWeight.w700))),
         body: const SettingsBody(),
       );
 }
@@ -327,7 +364,7 @@ class _CatPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(backgroundColor: bg, title: Text(tr(cat.title), style: const TextStyle(fontWeight: FontWeight.w700))),
+        appBar: AppBar(title: Text(tr(cat.title), style: const TextStyle(fontWeight: FontWeight.w700))),
         body: ListenableBuilder(listenable: Listenable.merge([store, downloads]), builder: (context, _) => _CatBody(cat)),
       );
 }
@@ -348,25 +385,32 @@ class _CatBody extends StatelessWidget {
             children: [
               SectionTitle(tr(cat.title)),
               for (final (i, it) in cat.items.where((it) => it is! _Opt || (it.visible?.call() ?? true)).indexed)
+                // Gestaffelt einblenden; Schlüssel je Eintrag, damit beim Ein-/Ausblenden nichts neu startet
                 if (it is _Opt)
-                  _row(
-                    context,
-                    focusNode: i == 0 ? first : null,
-                    tr(it.label),
-                    it.hint == null ? null : tr(it.hint!),
-                    value: it.options == null
-                        ? null
-                        : tr(it.options![store.get<Object>(it.key, it.def)] ??
-                            (it.key == 'accent' ? hexColor(store.accent) : '—')),
-                    toggle: it.options == null ? store.get<bool>(it.key, it.def as bool) : null,
-                    color: it.key == 'accent' ? store.accent : null,
-                    onTap: () => _change(context, it),
-                  )
+                  Rise(i,
+                      key: ValueKey(it.key),
+                      distance: 14,
+                      child: _row(
+                        context,
+                        focusNode: i == 0 ? first : null,
+                        tr(it.label),
+                        it.hint == null ? null : tr(it.hint!),
+                        value: it.options == null
+                            ? null
+                            : tr(it.options![store.get<Object>(it.key, it.def)] ??
+                                (it.key == 'accent' ? hexColor(store.accent) : '—')),
+                        toggle: it.options == null ? store.get<bool>(it.key, it.def as bool) : null,
+                        color: it.key == 'accent' ? store.accent : null,
+                        onTap: () => _change(context, it),
+                      ))
                 else if (it is _Act)
-                  _row(context, tr(it.label), it.hint?.call(),
-                      focusNode: i == 0 ? first : null,
-                      toggle: it.toggle?.call(),
-                      onTap: () => _action(context, it.key)),
+                  Rise(i,
+                      key: ValueKey(it.key),
+                      distance: 14,
+                      child: _row(context, tr(it.label), it.hint?.call(),
+                          focusNode: i == 0 ? first : null,
+                          toggle: it.toggle?.call(),
+                          onTap: () => _action(context, it.key))),
             ],
           ),
         ),
@@ -426,6 +470,11 @@ Future<void> _change(BuildContext c, _Opt o) async {
 
 Future<void> _action(BuildContext c, String what) async {
   switch (what) {
+    case 'setup':
+      store.set('setupDone', false);
+      Navigator.of(c).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const SetupScreen()), (_) => false);
+    case 'check':
+      Navigator.push(c, MaterialPageRoute(builder: (_) => const DeviceCheckScreen()));
     case 'pin':
       final p = await _askPin(c, tr('Neue PIN (leer = keine PIN)'));
       if (p != null) {

@@ -213,7 +213,6 @@ class _BrowseScreenState extends State<BrowseScreen> {
       final tabs = _tabs;
       return Scaffold(
         appBar: AppBar(
-          backgroundColor: bg,
           surfaceTintColor: Colors.transparent,
           titleSpacing: 16,
           title: Text(tr(_tabInfo[_tab]!.$1), style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: -.5)),

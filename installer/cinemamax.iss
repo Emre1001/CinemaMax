@@ -1,5 +1,5 @@
 ; Windows-Installer für CinemaMax (Inno Setup 6).
-; Wird im GitHub-Build erzeugt:  iscc /DAppVersion=1.6.6 installer\cinemamax.iss
+; Wird im GitHub-Build erzeugt:  iscc /DAppVersion=1.7.0 installer\cinemamax.iss
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif

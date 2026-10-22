@@ -1,10 +1,13 @@
 package com.cinemamax.cinemamax
 
+import android.app.ActivityManager
 import android.app.PictureInPictureParams
 import android.app.UiModeManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +23,10 @@ private const val EXTERNAL_REQUEST = 4711
 private val EXTERNAL = mapOf(
     "vlc" to listOf("org.videolan.vlc"),
     "mx" to listOf("com.mxtech.videoplayer.pro", "com.mxtech.videoplayer.ad"),
+    // Verstehen die MX-Player-Extras (Titel, Position, Rückgabe); Kodi spielt nur ab
+    "mpv" to listOf("is.xyz.mpv"),
+    "just" to listOf("com.brouken.player"),
+    "kodi" to listOf("org.xbmc.kodi"),
 )
 
 class MainActivity : FlutterActivity() {
@@ -105,6 +112,22 @@ class MainActivity : FlutterActivity() {
                             packageManager.hasSystemFeature("android.software.leanback")
                     )
                 }
+                // Echte Auflösung für „Bildschirmauflösung: Automatisch“ (Fernseher: 4K trotz 1080p-Oberfläche)
+                "displaySize" -> result.success(io.flutter.plugins.videoplayer.IptvTuning.displaySize(this).toList())
+                // Leistungsmodus „Automatisch“: wenig RAM/Kerne heißt schwaches Gerät
+                "perfInfo" -> {
+                    val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+                    val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+                    result.success(mapOf(
+                        "lowRam" to am.isLowRamDevice,
+                        "ramMb" to (mem.totalMem / (1024 * 1024)).toInt(),
+                        "cores" to Runtime.getRuntime().availableProcessors(),
+                    ))
+                }
+                "deviceCheck" -> Thread {
+                    val r = runCatching { deviceCheck() }
+                    runOnUiThread { r.fold({ result.success(it) }, { result.error("check", it.message, null) }) }
+                }.start()
                 "externalPlayers" -> result.success(EXTERNAL.filterValues { pkgs -> pkgs.any(::installed) }.keys.toList())
                 "playExternal" -> playExternal(call, result)
                 "pipSupported" -> result.success(pipSupported())
@@ -116,6 +139,40 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    /// Geräte-Check der Einrichtung: Decoder je Format ("hw", "sw", "none"), 4K-Decoder, HDMI-Durchreichen,
+    /// Bildschirm (echte Auflösung, Bildrate, HDR-Arten wie Display.HdrCapabilities).
+    private fun deviceCheck(): Map<String, Any> {
+        val decoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder }
+        fun hw(c: MediaCodecInfo) = if (Build.VERSION.SDK_INT >= 29) c.isHardwareAccelerated
+            else !c.name.startsWith("OMX.google.") && !c.name.startsWith("c2.android.")
+        fun of(mime: String) = decoders.filter { c -> c.supportedTypes.any { it.equals(mime, ignoreCase = true) } }
+        val mimes = listOf(
+            "video/avc", "video/hevc", "video/av01", "video/x-vnd.on2.vp9", "video/mpeg2",
+            "audio/mp4a-latm", "audio/ac3", "audio/eac3", "audio/vnd.dts", "audio/true-hd", "audio/opus",
+        )
+        val codecs = mimes.associateWith { m ->
+            val list = of(m)
+            if (list.any(::hw)) "hw" else if (list.isNotEmpty()) "sw" else "none"
+        }
+        val uhd = listOf("video/hevc", "video/avc").any { m ->
+            of(m).any { c -> runCatching { c.getCapabilitiesForType(m).videoCapabilities?.isSizeSupported(3840, 2160) == true }.getOrDefault(false) }
+        }
+        @Suppress("DEPRECATION")
+        val d = if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay
+        @Suppress("DEPRECATION")
+        val hdr = if (Build.VERSION.SDK_INT >= 24) d?.hdrCapabilities?.supportedHdrTypes?.toList() ?: emptyList() else emptyList()
+        val size = io.flutter.plugins.videoplayer.IptvTuning.displaySize(this)
+        return mapOf(
+            "codecs" to codecs,
+            "uhd" to uhd,
+            "passthrough" to io.flutter.plugins.videoplayer.IptvTuning.passthrough(this),
+            "width" to size[0],
+            "height" to size[1],
+            "refresh" to (d?.refreshRate?.toDouble() ?: 0.0),
+            "hdr" to hdr,
+        )
     }
 
     private fun installed(pkg: String) = try {

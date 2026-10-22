@@ -13,6 +13,7 @@ import '../i18n.dart';
 import '../errors.dart';
 import '../external_player.dart';
 import '../models.dart';
+import '../perf.dart';
 import '../playback.dart';
 import '../repo.dart';
 import '../store.dart';
@@ -234,6 +235,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     // Handy: beim Verlassen der App als Bild-in-Bild weiterlaufen
     if (_phone && store.get('autoPip', true)) _device.invokeMethod('autoPip', true).catchError((_) {});
     _open++;
+    Perf.paused++; // Videobilder nicht als langsame App-Bilder werten
     _immersive();
     ExternalPlayer.available().then((v) {
       if (mounted) setState(() => _externals = v);
@@ -250,6 +252,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   @override
   void dispose() {
+    Perf.paused--;
     _saveProgress();
     for (final t in [_hideTimer, _saveTimer, _sleepTimer, _retryTimer, _digitTimer, _toastTimer, _tapSeekTimer, _graceTimer]) {
       t?.cancel();
@@ -443,14 +446,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   /// Daten sparen: höchstens die eingestellte Auflösung. Spuren sind erst kurz nach dem Start bekannt.
   Future<void> _capQuality(int id) async {
-    final max = store.get('maxRes', 0);
+    final max = Engine.maxHeight;
     if (max <= 0) return;
     for (final wait in const [700, 2000, 4000]) {
       await Future.delayed(Duration(milliseconds: wait));
       if (!mounted || id != _openId || _e.qualityId != null) return;
       final label = await _e.capQuality(max);
       if (label != null) {
-        if (mounted) _flash(tr('Daten sparen: {0}', [label]));
+        if (mounted && label.isNotEmpty) _flash(tr('Daten sparen: {0}', [label]));
         return;
       }
     }
