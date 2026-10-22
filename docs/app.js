@@ -68,7 +68,7 @@
   const sectionObs = new IntersectionObserver((es) => es.forEach((e) => {
     if (e.isIntersecting) links.forEach((a) => a.classList.toggle('active', a.getAttribute('href') === `#${e.target.id}`));
   }), { rootMargin: '-45% 0px -50% 0px' });
-  ['features', 'how', 'remote', 'download', 'faq'].forEach((id) => sectionObs.observe(document.getElementById(id)));
+  ['features', 'setup', 'how', 'remote', 'download', 'faq'].forEach((id) => sectionObs.observe(document.getElementById(id)));
 
   /* ================= Einblenden & Zähler ================= */
   const revealObs = new IntersectionObserver((es) => es.forEach((e) => {
