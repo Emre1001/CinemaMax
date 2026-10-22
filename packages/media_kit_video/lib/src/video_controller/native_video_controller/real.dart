@@ -98,6 +98,11 @@ class NativeVideoController extends PlatformVideoController {
         videoParamsWidth = width;
         videoParamsHeight = height;
 
+        // CinemaMax: per [setSize] fest gewählte Größe nicht überschreiben (4K auf kleinerem Bildschirm)
+        if (this.width != null && this.height != null) {
+          return;
+        }
+
         await _channel.invokeMethod(
           'VideoOutputManager.SetSize',
           {

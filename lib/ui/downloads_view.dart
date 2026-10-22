@@ -101,7 +101,7 @@ class DownloadsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(backgroundColor: bg, title: Text(tr('Downloads'), style: const TextStyle(fontWeight: FontWeight.w700))),
+        appBar: AppBar(title: Text(tr('Downloads'), style: const TextStyle(fontWeight: FontWeight.w700))),
         body: const DownloadsView(),
       );
 }

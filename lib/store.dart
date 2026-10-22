@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
+import 'perf.dart';
 
 final store = Store();
 
@@ -50,7 +51,8 @@ class Store extends ChangeNotifier {
       ThemeData.estimateBrightnessForColor(accent) == Brightness.dark ? Colors.white : Colors.black;
   String get layout => get('layout', 'auto');
   double get tileScale => const {'S': .82, 'M': 1.0, 'L': 1.22}[get('tileSize', 'M')]!;
-  bool get reduceMotion => get('reduceMotion', false);
+  // Speed-Modus: ohne Animationen wie „Animationen reduzieren“
+  bool get reduceMotion => get('reduceMotion', false) || Perf.speed;
   bool get hideAdult => get('hideAdult', true);
   String get userAgent => get('userAgent', 'VLC/3.0.20 LibVLC/3.0.20');
   String get liveFormat => get('liveFormat', 'ts');

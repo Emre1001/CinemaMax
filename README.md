@@ -98,10 +98,11 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 ### ▶️ Player
 - **ExoPlayer** auf Android, für IPTV angepasst (Software-Decoder als Rückfall, lange Timeouts, TS ohne Keyframe-Start)
 - **libmpv** auf Linux und Windows, auf Android wählbar
-- **Externe Player**: VLC (Android, Linux, Windows) und MX Player (Android), für alles oder einzeln über „Mehr“; Android merkt sich die Stelle zum Weiterschauen
+- **Externe Player**: VLC und mpv (Android, Linux, Windows), MX Player, Just Player und Kodi (Android), für alles oder einzeln über „Mehr“; Android merkt sich die Stelle zum Weiterschauen
+- **FFmpeg-Tondecoder** in ExoPlayer: AC3, E-AC3, DTS und TrueHD auch auf Geräten ohne eigenen Decoder
 - HLS, MPEG-TS, MP4, MKV, DASH, RTSP, RTMP, UDP, SRT (SRT/MMS auf Android über VLC)
 - **Auflösung wählen** (Automatisch, 1080p, 720p …) bei HLS/DASH
-- **Daten sparen**: maximale Auflösung festlegen (z. B. 480p bei langsamem Internet)
+- **Bildschirmauflösung**: Streams nie höher laden als der Bildschirm zeigt (automatisch erkannt, auch 4K-Fernseher), wählbar von 144p bis 4K; spart Daten und Leistung
 - Scheitert ein Player, springt automatisch der andere ein (Android: ExoPlayer ↔ mpv)
 - Fehler als verständlicher Text statt Absturz
 - **Nächste Folge** mit Countdown im Abspann, **Intro überspringen** (10 s mit Countdown), „Schaust du noch?“
@@ -121,6 +122,8 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 - **Handy**: Touch, untere Leiste, Querformat im Player
 - **PC**: Maus, Tastatur, feste Seitenleiste
 - Die Oberfläche erkennt das Gerät selbst
+- **Einrichtung** beim ersten Start: Sprache, Aussehen, Leistung, Bildschirm und **Geräte-Check** (welche Formate das Gerät abspielt)
+- **Leistungsmodus**: Alle Effekte, Flüssig (TV-Boxen, alte Handys) oder Speed (ohne Animationen); automatisch nach Gerät und gemessener Bildrate
 
 </td>
 <td valign="top">
@@ -343,6 +346,6 @@ Fehler gefunden oder eine Idee? [Issue öffnen](https://github.com/Emre1001/Cine
 
 ## 📄 Lizenz
 
-[MIT](LICENSE) © Emre1001. `packages/video_player_android` stammt vom Flutter-Team und steht unter BSD-3-Clause.
+[MIT](LICENSE) © Emre1001. `packages/video_player_android` stammt vom Flutter-Team und steht unter BSD-3-Clause. Die Android-APK enthält den FFmpeg-Tondecoder von [Jellyfin](https://github.com/jellyfin/jellyfin-androidx-media) (GPLv3), die APK als Ganzes fällt damit unter die GPLv3.
 
 <div align="center"><sub>CinemaMax enthält keine Inhalte. Alle Sender, Filme und Serien in Vorschau und Website sind erfunden.</sub></div>

@@ -38,6 +38,7 @@
   </a>
   <nav class="nav-links" aria-label="Hauptnavigation">
     <a href="#features">Funktionen</a>
+    <a href="#setup">Neu</a>
     <a href="#how">So geht's</a>
     <a href="#send">An TV senden</a>
     <a href="#remote">Bedienung</a>
@@ -176,9 +177,9 @@
       </article>
 
       <article class="card reveal" tabindex="0">
-        <div class="mini-tags" aria-hidden="true"><span>4K</span><span>1080p</span><span>720p</span><span>480p</span></div>
+        <div class="mini-tags" aria-hidden="true"><span>4K</span><span>1440p</span><span>1080p</span><span>720p</span><span>144p</span></div>
         <h3>Echtes 4K &amp; Daten sparen</h3>
-        <p>Auflösung selbst wählen. Auf dem Fernseher echtes 4K mit richtigen HDR-Farben, bei langsamem Internet eine Grenze wie 480p.</p>
+        <p>Die App erkennt deinen Bildschirm und lädt Streams nie größer, als er zeigen kann. Auf dem Fernseher echtes 4K mit HDR, bei langsamem Internet eine Grenze bis hinunter zu 144p.</p>
       </article>
 
       <article class="card reveal" tabindex="0">
@@ -250,11 +251,48 @@
         <p>Deutsch, Englisch und Türkisch. Die App folgt automatisch der Sprache deines Geräts.</p>
       </article>
 
-      <article class="card card-span2 reveal" tabindex="0">
+      <article class="card reveal" tabindex="0">
+        <div class="mini-tags" aria-hidden="true"><span>Dolby Digital</span><span>DTS</span><span>VLC</span><span>mpv</span><span>Kodi</span></div>
+        <h3>Spielt mehr ab</h3>
+        <p>Dolby Digital, DTS und TrueHD auch ohne Decoder im Gerät. Und wenn du willst, öffnet sich alles in VLC, mpv, MX Player, Just Player oder Kodi.</p>
+      </article>
+
+      <article class="card reveal" tabindex="0">
         <div class="mini-pin" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         <h3>Kindersicherung</h3>
         <p>Erwachsenen-Kategorien ausblenden, mit PIN schützen und eigene Kategorien verstecken.</p>
       </article>
+    </div>
+  </section>
+
+  <!-- ============ NEU IN 1.7.0 ============ -->
+  <section class="section" id="setup" aria-labelledby="setupTitle">
+    <div class="how-grid">
+      <div class="reveal">
+        <p class="eyebrow">Neu in 1.7.0</p>
+        <h2 id="setupTitle">In einer Minute eingerichtet.<br><span class="dim">Und du siehst, was dein Gerät kann.</span></h2>
+        <ul class="send-points">
+          <li><b>Einrichtung beim ersten Start.</b> Sprache, Aussehen, Leistung und Bildschirm, mit der Fernbedienung genauso schnell wie mit Touch. Jederzeit wiederholbar.</li>
+          <li><b>Geräte-Check.</b> Für jedes Format siehst du, ob es mit Hardware, Software oder über einen anderen Player läuft: H.265, AV1, Dolby Digital, DTS, 4K, HDR.</li>
+          <li><b>Flüssig auf jeder Box.</b> Alle Effekte auf starken Geräten, „Flüssig“ für TV-Boxen und ältere Handys, „Speed“ ganz ohne Animationen. Die App misst selbst und wählt automatisch.</li>
+          <li><b>Bildschirm erkannt.</b> 4K-Fernseher bekommen 4K, ein 1080p-Handy keine 4K-Daten. Wählbar von 144p bis 4K.</li>
+        </ul>
+        <a class="btn btn-primary btn-lg" href="#download">Version 1.7.0 laden</a>
+      </div>
+      <div class="how-stage check-stage reveal" aria-hidden="true">
+        <div class="ck-card">
+          <div class="ck-ring"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5"/><circle class="ck-prog" cx="18" cy="18" r="15.5"/></svg><b>11<small>/11</small></b><span>laufen</span></div>
+          <ol class="ck-rows">
+            <li><b>H.264 (AVC)</b><i>Hardware</i></li>
+            <li><b>H.265 (HEVC)</b><i>Hardware</i></li>
+            <li><b>AV1</b><i>Software</i></li>
+            <li><b>Dolby Digital Plus</b><i>An Fernseher durchgereicht</i></li>
+            <li><b>DTS</b><i>FFmpeg (Software)</i></li>
+            <li><b>4K &amp; HDR</b><i>HDR10, HLG</i></li>
+          </ol>
+        </div>
+        <div class="ck-modes"><span>Alle Effekte</span><span class="on">Flüssig</span><span>Speed</span><em>Automatisch erkannt · 60 fps</em></div>
+      </div>
     </div>
   </section>
 
@@ -319,7 +357,7 @@
           <li><b>Ende-zu-Ende verschlüsselt.</b> Xtream, M3U und Stalker verlassen das Gerät nur verschlüsselt. Der Code selbst wird nie übertragen.</li>
           <li><b>Mit Rückmeldung.</b> Du siehst live, wann der Fernseher die Daten hat und verbunden ist.</li>
         </ul>
-        <a class="btn btn-primary" href="tv/">An Fernseher senden</a>
+        <a class="btn btn-primary btn-lg" href="tv/">An Fernseher senden</a>
       </div>
       <div class="how-stage send-stage reveal" aria-hidden="true">
         <div class="send-tv">
@@ -450,10 +488,11 @@ sudo apt install ./cinemamax_*_amd64.deb</code></pre>
     <div class="faq reveal">
       <details><summary>Bringt CinemaMax Sender mit?</summary><p>Nein. CinemaMax ist nur ein Player. Er spielt die freien, öffentlichen Listen von iptv-org und die Quellen ab, die du selbst einträgst. Nutze nur Quellen, zu deren Nutzung du berechtigt bist.</p></details>
       <details><summary>Was kostet die App?</summary><p>Nichts. Keine Werbung, kein Abo, kein Tracking. Der Quellcode steht unter der MIT-Lizenz auf GitHub.</p></details>
-      <details><summary>Ein Sender bleibt schwarz. Was tun?</summary><p>Im Player auf „Info“ schauen und den Fehler lesen. Oft hilft in den Einstellungen ein anderer User-Agent oder der Player „mpv“ statt ExoPlayer. Bei Xtream-Live kannst du das Format zwischen MPEG-TS und HLS umschalten.</p></details>
+      <details><summary>Ein Sender bleibt schwarz. Was tun?</summary><p>Im Player auf „Info“ schauen und den Fehler lesen. Der Geräte-Check (Einstellungen → Start) zeigt, ob dein Gerät das Format kann. Oft hilft in den Einstellungen ein anderer User-Agent oder der Player „mpv“ statt ExoPlayer. Bei Xtream-Live kannst du das Format zwischen MPEG-TS und HLS umschalten.</p></details>
       <details><summary>Wo bekomme ich einen TV-Guide her?</summary><p>Bei Xtream kommt er automatisch. Bei M3U-Listen liest CinemaMax <code>url-tvg</code> aus dem Kopf der Liste. Sonst trägst du im Server-Menü eine eigene XMLTV-Adresse ein, auch als .gz.</p></details>
       <details><summary>Werden meine Zugangsdaten irgendwohin gesendet?</summary><p>Nur an deinen eigenen Server. CinemaMax hat keinen eigenen Server und sammelt keine Daten. Alles bleibt auf deinem Gerät.</p></details>
-      <details><summary>Läuft das auf meiner TV-Box?</summary><p>Ab Android 7. Für schwache Boxen gibt es in den Einstellungen „Animationen reduzieren“ und die schnellere Videoausgabe „SurfaceView“.</p></details>
+      <details><summary>Läuft das auf meiner TV-Box?</summary><p>Ab Android 7. Die App erkennt schwache Boxen selbst und schaltet auf „Flüssig“ oder „Speed“ (ganz ohne Animationen); in der Einrichtung oder unter Einstellungen → Darstellung → Leistung kannst du das auch selbst wählen. Der Geräte-Check zeigt, welche Formate deine Box abspielt.</p></details>
+      <details><summary>Warum lädt ein Stream nicht in 4K?</summary><p>CinemaMax lädt Streams nie größer, als dein Bildschirm zeigen kann: Ein 1080p-Gerät bekommt höchstens 1080p und spart so Daten. Unter Einstellungen → Qualität &amp; Daten → Bildschirmauflösung kannst du „Keine Grenze“ oder eine feste Stufe von 144p bis 4K wählen.</p></details>
     </div>
   </section>
 

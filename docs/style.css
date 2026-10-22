@@ -707,3 +707,36 @@ code { font-size: .92em; }
 @keyframes send-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .send-steps li, .send-wait i { animation: none; opacity: 1; } }
 @media (max-width: 560px) { .send-tv { flex-direction: column; text-align: center; } .send-wait { justify-content: center; } }
+
+/* ============ Neu in 1.7.0: Geräte-Check ============ */
+.check-stage { padding: 30px; align-content: center; gap: 22px; }
+.ck-card { display: flex; gap: 26px; align-items: center; padding: 24px; border-radius: 18px; background: var(--screen); color: #F5F5F7; border: 1px solid var(--line); }
+.ck-ring { position: relative; flex: none; width: 128px; height: 128px; display: grid; place-items: center; align-content: center; }
+.ck-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ck-ring circle { fill: none; stroke: rgba(255, 255, 255, .1); stroke-width: 3; }
+.ck-ring .ck-prog { stroke: #3DD68C; stroke-linecap: round; stroke-dasharray: 97.4; stroke-dashoffset: 97.4; }
+.check-stage.in .ck-prog { animation: ck-fill 8s var(--ease-out) infinite; }
+.ck-ring b { font-size: 34px; font-weight: 900; line-height: 1; }
+.ck-ring b small { font-size: 15px; color: #8E8E96; font-weight: 700; }
+.ck-ring span { color: #3DD68C; font-size: 13px; font-weight: 700; margin-top: 4px; }
+.ck-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; flex: 1; min-width: 0; }
+.ck-rows li { display: grid; grid-template-columns: 22px 1fr; column-gap: 10px; opacity: .3; }
+.ck-rows li::before { content: "✓"; grid-row: span 2; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; color: #fff; background: #3DD68C; transform: scale(.4); }
+.ck-rows b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck-rows i { font-style: normal; font-size: 12px; color: #8E8E96; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.check-stage.in .ck-rows li { animation: ck-row 8s infinite; }
+.check-stage.in .ck-rows li::before { animation: ck-pop 8s infinite; }
+.ck-rows li:nth-child(2), .ck-rows li:nth-child(2)::before { animation-delay: .35s !important; }
+.ck-rows li:nth-child(3), .ck-rows li:nth-child(3)::before { animation-delay: .7s !important; }
+.ck-rows li:nth-child(4), .ck-rows li:nth-child(4)::before { animation-delay: 1.05s !important; }
+.ck-rows li:nth-child(5), .ck-rows li:nth-child(5)::before { animation-delay: 1.4s !important; }
+.ck-rows li:nth-child(6), .ck-rows li:nth-child(6)::before { animation-delay: 1.75s !important; }
+.ck-modes { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ck-modes span { padding: 8px 16px; border-radius: 100px; background: var(--surface2); border: 1px solid var(--line); font-weight: 700; font-size: 14px; }
+.ck-modes span.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.ck-modes em { font-style: normal; color: var(--dim); font-size: 14px; }
+@keyframes ck-fill { 0%, 6% { stroke-dashoffset: 97.4; } 40%, 88% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 97.4; } }
+@keyframes ck-row { 0%, 4% { opacity: .3; } 10%, 88% { opacity: 1; } 100% { opacity: .3; } }
+@keyframes ck-pop { 0%, 4% { transform: scale(.4); } 9% { transform: scale(1.25); } 13%, 88% { transform: scale(1); } 100% { transform: scale(.4); } }
+@media (prefers-reduced-motion: reduce) { .ck-rows li, .ck-rows li::before, .ck-prog { animation: none !important; opacity: 1; transform: none; stroke-dashoffset: 0; } }
+@media (max-width: 560px) { .ck-card { flex-direction: column; align-items: stretch; } .ck-ring { align-self: center; } }

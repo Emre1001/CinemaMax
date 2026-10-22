@@ -7,7 +7,7 @@ import 'package:media_kit/media_kit.dart' as mk;
 
 import '../store.dart';
 import 'common.dart';
-import 'start.dart';
+import 'setup.dart';
 
 /// Startanimation: das App-Zeichen (Balken + Play-Dreieck) wird zum Schriftzug „CinemaMax“.
 /// Ablauf passend zum Startton: Luftzug (Balken wächst), Bass-Schlag (Dreieck landet),
@@ -44,7 +44,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 380),
-        pageBuilder: (_, _, _) => const StartScreen(),
+        pageBuilder: (_, _, _) => firstScreen(),
         transitionsBuilder: (_, a, _, child) => FadeTransition(
           opacity: CurvedAnimation(parent: a, curve: Curves.easeOut),
           child: child,
@@ -96,7 +96,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               final tri = SizedBox(
                 width: unit * .82,
                 height: unit,
-                child: CustomPaint(painter: _Triangle(Colors.white)),
+                child: CustomPaint(painter: PlayTriangle(Colors.white)),
               );
 
               return Opacity(
@@ -191,9 +191,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   }
 }
 
-class _Triangle extends CustomPainter {
+/// Play-Dreieck des App-Zeichens (auch in der Einrichtung).
+class PlayTriangle extends CustomPainter {
   final Color color;
-  _Triangle(this.color);
+  PlayTriangle(this.color);
 
   @override
   void paint(Canvas canvas, Size s) {
@@ -216,5 +217,5 @@ class _Triangle extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_Triangle old) => old.color != color;
+  bool shouldRepaint(PlayTriangle old) => old.color != color;
 }

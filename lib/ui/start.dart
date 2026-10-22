@@ -13,6 +13,7 @@ import '../store.dart';
 import '../update.dart';
 import 'browse.dart';
 import 'common.dart';
+import 'fx.dart';
 import 'downloads_view.dart';
 import 'player.dart';
 import 'settings.dart';
@@ -217,7 +218,10 @@ class _StartScreenState extends State<StartScreen> {
     ];
     // Handy quer: weniger Höhe als Inhalt, dann scrollen; sonst verteilen die Spacer den Platz wie bisher
     return Scaffold(
-      body: SafeArea(
+      body: Stack(children: [
+       // Startseite: ziehende Farbwolken wie in der Einrichtung (nur bei voller Leistung)
+       const Positioned.fill(child: Backdrop()),
+       SafeArea(
         child: LayoutBuilder(
           builder: (_, box) => SingleChildScrollView(
             child: ConstrainedBox(
@@ -226,7 +230,7 @@ class _StartScreenState extends State<StartScreen> {
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: wide ? 56 : 20, vertical: 24),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
+                    Rise(0, distance: 12, child: Row(children: [
                       const Wordmark(),
                       const Spacer(),
                       Tap(
@@ -251,20 +255,21 @@ class _StartScreenState extends State<StartScreen> {
                             .then((_) => setState(() {})),
                         child: const Padding(padding: EdgeInsets.all(10), child: Icon(Icons.tune_rounded)),
                       ),
-                    ]),
+                    ])),
                     const Spacer(),
-                    Text(tr('Was möchtest du schauen?'),
-                        style: TextStyle(fontSize: wide ? 34 : 26, fontWeight: FontWeight.w800, letterSpacing: -1)),
+                    Rise(1,
+                        child: Text(tr('Was möchtest du schauen?'),
+                            style: TextStyle(fontSize: wide ? 38 : 28, fontWeight: FontWeight.w800, letterSpacing: -1.2))),
                     const SizedBox(height: 24),
                     wide
                         ? IntrinsicHeight(
                             child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                              Expanded(child: cards[0]),
+                              Expanded(child: Rise(2, child: cards[0])),
                               const SizedBox(width: 20),
-                              Expanded(child: cards[1]),
+                              Expanded(child: Rise(3, child: cards[1])),
                             ]),
                           )
-                        : Column(children: [cards[0], const SizedBox(height: 14), cards[1]]),
+                        : Column(children: [Rise(2, child: cards[0]), const SizedBox(height: 14), Rise(3, child: cards[1])]),
                     const Spacer(flex: 2),
                   ]),
                 ),
@@ -272,7 +277,8 @@ class _StartScreenState extends State<StartScreen> {
             ),
           ),
         ),
-      ),
+       ),
+      ]),
     );
   }
 }
@@ -316,9 +322,24 @@ class _ModeCard extends StatelessWidget {
         scale: 1.03,
         child: Container(
           padding: const EdgeInsets.all(26),
-          decoration: BoxDecoration(color: surface, border: Border.all(color: line), borderRadius: BorderRadius.circular(18)),
+          decoration: BoxDecoration(
+            // Leichter Akzentschimmer oben links, wie die Karten der Einrichtung
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [store.accent.withValues(alpha: .16), surface.withValues(alpha: .78)],
+              stops: const [0, .6],
+            ),
+            border: Border.all(color: line),
+            borderRadius: BorderRadius.circular(18),
+          ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(icon, size: 34, color: store.accent),
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(color: store.accent.withValues(alpha: .16), borderRadius: BorderRadius.circular(16)),
+              child: Icon(icon, size: 30, color: store.accent),
+            ),
             const SizedBox(height: 22),
             Text(title, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -.6)),
             const SizedBox(height: 8),
@@ -419,21 +440,24 @@ class _SourcesScreenState extends State<SourcesScreen> {
     ];
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: bg,
         title: Text(widget.iptv ? tr('IPTV-Liste wählen') : tr('Server wählen'), style: const TextStyle(fontWeight: FontWeight.w700)),
       ),
       body: ListView(
         padding: EdgeInsets.symmetric(horizontal: wide ? 48 : 16, vertical: 8),
         children: [
           for (final (i, s) in list.indexed)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _SourceTile(
-                key: ValueKey('${s.id}${s.name}'),
-                source: s,
-                autofocus: i == 0,
-                onTap: () => openSource(context, s),
-                onMenu: () => _menu(s),
+            Rise(
+              i,
+              key: ValueKey('${s.id}${s.name}'),
+              distance: 16,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _SourceTile(
+                  source: s,
+                  autofocus: i == 0,
+                  onTap: () => openSource(context, s),
+                  onMenu: () => _menu(s),
+                ),
               ),
             ),
           const SizedBox(height: 4),
@@ -466,7 +490,7 @@ class _SourceTile extends StatefulWidget {
   final VoidCallback onTap, onMenu;
   final bool autofocus;
   const _SourceTile(
-      {super.key, required this.source, required this.onTap, required this.onMenu, this.autofocus = false});
+      {required this.source, required this.onTap, required this.onMenu, this.autofocus = false});
 
   @override
   State<_SourceTile> createState() => _SourceTileState();
@@ -723,7 +747,7 @@ class _SourceEditorState extends State<SourceEditor> {
   Widget build(BuildContext context) {
     final what = widget.iptv ? tr('IPTV-Liste') : tr('Server');
     return Scaffold(
-      appBar: AppBar(backgroundColor: bg, title: Text(widget.source == null ? tr('{0} hinzufügen', [what]) : tr('{0} bearbeiten', [what]))),
+      appBar: AppBar(title: Text(widget.source == null ? tr('{0} hinzufügen', [what]) : tr('{0} bearbeiten', [what]))),
       body: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 560),
