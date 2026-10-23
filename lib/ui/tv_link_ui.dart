@@ -117,7 +117,7 @@ class _ReceiveDialogState extends State<_ReceiveDialog> {
         Text(
           tr('QR-Code mit dem Handy scannen, oder auf jedem Gerät weltweit diese Seite öffnen und den Code eingeben:'),
           textAlign: wide ? TextAlign.start : TextAlign.center,
-          style: const TextStyle(color: textDim, height: 1.4),
+          style: TextStyle(color: textDim, height: 1.4),
         ),
         const SizedBox(height: 14),
         Text(TvLink.site.replaceFirst('https://', '').replaceFirst(RegExp(r'/$'), ''),
@@ -142,9 +142,9 @@ class _ReceiveDialogState extends State<_ReceiveDialog> {
           if (!expired) ...[
             const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
             const SizedBox(width: 10),
-            Text(tr('Warte auf Daten · gültig {0}', ['${left.inMinutes}:${(left.inSeconds % 60).toString().padLeft(2, '0')}']), style: const TextStyle(color: textDim)),
+            Text(tr('Warte auf Daten · gültig {0}', ['${left.inMinutes}:${(left.inSeconds % 60).toString().padLeft(2, '0')}']), style: TextStyle(color: textDim)),
           ] else
-            Text(tr('Code abgelaufen'), style: const TextStyle(color: textDim)),
+            Text(tr('Code abgelaufen'), style: TextStyle(color: textDim)),
         ]),
       ],
     );
@@ -161,12 +161,12 @@ class _ReceiveDialogState extends State<_ReceiveDialog> {
                 : Column(children: [qr, const SizedBox(height: 22), info]),
             const SizedBox(height: 22),
             Row(children: [
-              const Icon(Icons.lock_rounded, size: 16, color: textDim),
+              Icon(Icons.lock_rounded, size: 16, color: textDim),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   tr('Ende-zu-Ende verschlüsselt. Code nur an Personen geben, denen du vertraust.'),
-                  style: const TextStyle(color: textDim, fontSize: 12.5),
+                  style: TextStyle(color: textDim, fontSize: 12.5),
                 ),
               ),
             ]),
@@ -275,7 +275,7 @@ class _SendDialogState extends State<_SendDialog> {
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(
           tr('Auf dem anderen Gerät unter „Server hinzufügen“ → „Per Code empfangen“ wählen und den angezeigten Code hier eingeben.'),
-          style: const TextStyle(color: textDim, height: 1.4),
+          style: TextStyle(color: textDim, height: 1.4),
         ),
         const SizedBox(height: 16),
         InputBox(
@@ -296,9 +296,9 @@ class _SendDialogState extends State<_SendDialog> {
         ],
         const SizedBox(height: 12),
         Row(children: [
-          const Icon(Icons.lock_rounded, size: 14, color: textDim),
+          Icon(Icons.lock_rounded, size: 14, color: textDim),
           const SizedBox(width: 6),
-          Expanded(child: Text(tr('Ende-zu-Ende verschlüsselt.'), style: const TextStyle(color: textDim, fontSize: 12))),
+          Expanded(child: Text(tr('Ende-zu-Ende verschlüsselt.'), style: TextStyle(color: textDim, fontSize: 12))),
         ]),
       ]),
     ),

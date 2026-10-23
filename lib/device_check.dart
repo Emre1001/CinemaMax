@@ -105,7 +105,7 @@ class DeviceCheck {
         : (group: 'Bild', label: '4K', level: Level.alt, detail: tr('Kein 4K-Decoder: Streams werden begrenzt')));
     items.add(hdr.isNotEmpty
         ? (group: 'Bild', label: 'HDR', level: Level.ok, detail: hdr.join(', '))
-        : (group: 'Bild', label: 'HDR', level: Level.info, detail: tr('Kein HDR-Bildschirm: Bild wird normal gezeigt')));
+        : (group: 'Bild', label: 'HDR', level: Level.info, detail: tr('Kein HDR-Bildschirm')));
     final w = (r['width'] as num?)?.toInt() ?? 0, h = (r['height'] as num?)?.toInt() ?? 0;
     final refresh = (r['refresh'] as num?)?.toDouble() ?? 0;
     return (width: w, height: h, refresh: refresh, items: _system(items, w, h, refresh));

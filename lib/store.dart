@@ -168,7 +168,11 @@ class Store extends ChangeNotifier {
   // ---- Sicherung: Server, Favoriten, Einstellungen als JSON ----
   String exportBackup() => jsonEncode({
         for (final k in _p.getKeys())
-          if (!k.startsWith('lastGroup_') && !k.startsWith('recentLive_') && k != 'downloads') k: _p.get(k),
+          // Gerätebezogen: Downloads und gemessene Leistung gehören nicht auf ein anderes Gerät
+          if (!k.startsWith('lastGroup_') &&
+              !k.startsWith('recentLive_') &&
+              !const {'downloads', 'perfSlow', 'perfVerySlow'}.contains(k))
+            k: _p.get(k),
       });
 
   Future<void> importBackup(String json) async {

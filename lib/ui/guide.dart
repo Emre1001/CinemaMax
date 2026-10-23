@@ -53,7 +53,7 @@ class _GuideViewState extends State<GuideView> {
           if (widget.lib.epgUrl == null) {
             return Center(
               child: Text(tr('Diese Quelle hat keinen Programmführer.\nEPG-URL im Server-Menü eintragen (lange drücken).'),
-                  textAlign: TextAlign.center, style: const TextStyle(color: textDim, fontSize: 15)),
+                  textAlign: TextAlign.center, style: TextStyle(color: textDim, fontSize: 15)),
             );
           }
           if (epg.loading(widget.source) && !epg.has(widget.source)) {
@@ -61,7 +61,7 @@ class _GuideViewState extends State<GuideView> {
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
-                Text(tr('Programmführer wird geladen …'), style: const TextStyle(color: textDim)),
+                Text(tr('Programmführer wird geladen …'), style: TextStyle(color: textDim)),
               ]),
             );
           }
@@ -72,7 +72,7 @@ class _GuideViewState extends State<GuideView> {
                 Text(epg.errors[widget.source.id] != null
                     ? tr('Programmführer konnte nicht geladen werden: {0}', [explain(epg.errors[widget.source.id]!)])
                     : tr('Keine Programmdaten für diese Sender'),
-                    textAlign: TextAlign.center, style: const TextStyle(color: textDim)),
+                    textAlign: TextAlign.center, style: TextStyle(color: textDim)),
                 const SizedBox(height: 16),
                 Pill(tr('Erneut laden'), icon: Icons.refresh, onTap: () => epg.ensure(widget.source, widget.lib, force: true)),
               ]),
@@ -123,10 +123,10 @@ class _GuideViewState extends State<GuideView> {
                       child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(m.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                         if (now != null)
-                          Text(now.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim, fontSize: 12)),
+                          Text(now.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: textDim, fontSize: 12)),
                       ]),
                     ),
-                    if (m.archive > 0) const Icon(Icons.history_rounded, size: 16, color: Colors.white38),
+                    if (m.archive > 0) Icon(Icons.history_rounded, size: 16, color: ink(.38)),
                   ]),
                 ),
               );
@@ -219,25 +219,25 @@ class _ProgRow extends StatelessWidget {
             SizedBox(
               width: 108,
               child: Text('${hhmm(context, p.start)}–${hhmm(context, p.stop)}',
-                  style: TextStyle(color: dim ? Colors.white38 : Colors.white70, fontFeatures: const [FontFeature.tabularFigures()])),
+                  style: TextStyle(color: dim ? ink(.38) : ink(.7), fontFeatures: const [FontFeature.tabularFigures()])),
             ),
             Expanded(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(p.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: dim ? Colors.white38 : Colors.white)),
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: dim ? ink(.38) : fg)),
                 if (p.desc != null)
-                  Text(p.desc!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim, fontSize: 12.5)),
+                  Text(p.desc!, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: textDim, fontSize: 12.5)),
                 if (now) ...[
                   const SizedBox(height: 6),
-                  LinearProgressIndicator(value: p.progress, minHeight: 3, color: store.accent, backgroundColor: Colors.white12),
+                  LinearProgressIndicator(value: p.progress, minHeight: 3, color: store.accent, backgroundColor: ink(.12)),
                 ],
               ]),
             ),
             const SizedBox(width: 10),
             if (now) Icon(Icons.play_circle_fill_rounded, color: store.accent),
-            if (past && catchup) const Icon(Icons.history_rounded, color: Colors.white70),
+            if (past && catchup) Icon(Icons.history_rounded, color: ink(.7)),
           ]),
         ),
       ),

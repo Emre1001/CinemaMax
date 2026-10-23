@@ -46,6 +46,7 @@ Future<void> main(List<String> args) async {
     }
   }
   await store.init();
+  isLight = resolveLight();
   await Perf.init();
   await downloads.init();
   await Links.init(args);
@@ -70,36 +71,66 @@ class App extends StatefulWidget {
   State<App> createState() => _AppState();
 }
 
-class _AppState extends State<App> {
+class _AppState extends State<App> with WidgetsBindingObserver {
   ThemeData? _theme;
   Color? _accent;
+  bool? _themeLight;
   String _lang = lang;
   static bool _introShown = false;
 
   @override
   void initState() {
     super.initState();
-    // Nur bei Akzentfarben-Wechsel neu bauen, nicht bei jeder Store-Änderung
-    store.addListener(() {
-      if (store.accent != _accent || lang != _lang) setState(() => _lang = lang);
-    });
+    WidgetsBinding.instance.addObserver(this);
+    store.addListener(_onStore);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    store.removeListener(_onStore);
+    super.dispose();
+  }
+
+  // Gerät wechselt zwischen hell und dunkel (Einstellung „Wie das Gerät“)
+  @override
+  void didChangePlatformBrightness() => _onStore();
+
+  /// Nur bei Akzentfarbe, Sprache oder Hell/Dunkel neu bauen, nicht bei jeder Store-Änderung.
+  void _onStore() {
+    final light = resolveLight();
+    if (store.accent == _accent && lang == _lang && light == isLight) return;
+    final all = lang != _lang || light != isLight;
+    _lang = lang;
+    isLight = light;
+    setState(() {});
+    // Texte und Farben stecken in jedem Widget: alles neu aufbauen, Navigation und Zustand bleiben erhalten
+    if (all) {
+      void mark(Element e) {
+        e.markNeedsBuild();
+        e.visitChildren(mark);
+      }
+
+      (context as Element).visitChildren(mark);
+    }
   }
 
   ThemeData get theme {
-    if (_accent == store.accent && _theme != null) return _theme!;
+    if (_accent == store.accent && _themeLight == isLight && _theme != null) return _theme!;
     _accent = store.accent;
+    _themeLight = isLight;
     final scheme = ColorScheme.fromSeed(
       seedColor: _accent!,
-      brightness: Brightness.dark,
-    ).copyWith(primary: _accent, onPrimary: store.onAccent, surface: bg, onSurface: Colors.white);
+      brightness: isLight ? Brightness.light : Brightness.dark,
+    ).copyWith(primary: _accent, onPrimary: store.onAccent, surface: bg, onSurface: fg);
     // Fernbedienung: gewählter Knopf in Dialogen klar sichtbar (Hervorhebung ist sonst abgeschaltet)
     final ring = ButtonStyle(
       side: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.focused) ? const BorderSide(color: Colors.white, width: 2.5) : null),
+          (s) => s.contains(WidgetState.focused) ? BorderSide(color: fg, width: 2.5) : null),
     );
     return _theme = ThemeData(
       useMaterial3: true,
-      focusColor: Colors.white24,
+      focusColor: ink(.24),
       textButtonTheme: TextButtonThemeData(style: ring),
       filledButtonTheme: FilledButtonThemeData(style: ring),
       outlinedButtonTheme: OutlinedButtonThemeData(style: ring),
@@ -114,10 +145,10 @@ class _AppState extends State<App> {
       ),
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
-      dialogTheme: const DialogThemeData(backgroundColor: surface),
-      snackBarTheme: const SnackBarThemeData(
+      dialogTheme: DialogThemeData(backgroundColor: surface),
+      snackBarTheme: SnackBarThemeData(
         backgroundColor: surface2,
-        contentTextStyle: TextStyle(color: Colors.white),
+        contentTextStyle: TextStyle(color: fg),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -139,20 +170,22 @@ class _AppState extends State<App> {
   }
 
   @override
-  // Sprachwechsel baut die App neu auf (Key), damit alle Texte neu übersetzt werden
   Widget build(BuildContext context) {
     final app = MaterialApp(
-      key: ValueKey(_lang),
       title: 'CinemaMax',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: messengerKey,
       theme: theme,
       // Ruhender Farbwolken-Hintergrund unter allen Seiten (Speed-Modus: schlicht)
-      builder: (_, child) => Stack(children: [const Positioned.fill(child: Backdrop(moving: false)), ?child]),
+      // Statusleiste: dunkle Symbole auf hellem Hintergrund
+      builder: (_, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: isLight ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light,
+        child: Stack(children: [const Positioned.fill(child: Backdrop(moving: false)), ?child]),
+      ),
       scrollBehavior: const MaterialScrollBehavior().copyWith(
         dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},
       ),
-      // Startanimation nur beim ersten Aufbau, nicht bei Sprachwechsel
+      // Startanimation nur beim ersten Aufbau
       home: store.get('intro', true) && !store.reduceMotion && !_introShown
           ? const SplashScreen()
           : firstScreen(),

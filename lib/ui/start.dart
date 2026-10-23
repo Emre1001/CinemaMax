@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../i18n.dart';
+import '../epg.dart';
 import '../errors.dart';
 import '../links.dart';
 import '../models.dart';
@@ -109,7 +110,7 @@ Future<void> askLink(BuildContext c) async {
             onSubmitted: (v) => Navigator.pop(d, v),
           )),
           const SizedBox(height: 10),
-          Text(tr('Stream, Video oder Playlist (M3U, Xtream get.php)'), style: const TextStyle(color: textDim, fontSize: 13)),
+          Text(tr('Stream, Video oder Playlist (M3U, Xtream get.php)'), style: TextStyle(color: textDim, fontSize: 13)),
         ]),
       ),
       actions: [
@@ -343,7 +344,7 @@ class _ModeCard extends StatelessWidget {
             const SizedBox(height: 22),
             Text(title, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -.6)),
             const SizedBox(height: 8),
-            Text(text, style: const TextStyle(color: textDim, fontSize: 15, height: 1.4)),
+            Text(text, style: TextStyle(color: textDim, fontSize: 15, height: 1.4)),
             const SizedBox(height: 22),
             Row(children: [
               Text(foot, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
@@ -405,7 +406,10 @@ class _SourcesScreenState extends State<SourcesScreen> {
             ],
           ),
         );
-        if (v != null) store.set('epgUrl_${s.id}', v);
+        if (v != null && v != store.get('epgUrl_${s.id}', '')) {
+          store.set('epgUrl_${s.id}', v);
+          await epg.forget(s); // sonst bleibt der alte Programmführer bis zu 12 Stunden
+        }
       case 'country':
         final cc = await pick(context, tr('Land'), {for (final e in iptvCountries.entries) e.key: tr(e.value)}, current: store.get('iptvCountry', 'de'));
         if (cc != null) setState(() => store.set('iptvCountry', cc));
@@ -796,7 +800,7 @@ class _SourceEditorState extends State<SourceEditor> {
                 SourceType.stalker => tr('Die MAC-Adresse muss beim Anbieter freigeschaltet sein.'),
                 _ => tr('Tipp: Ein get.php-Link mit username/password wird automatisch als Xtream-Zugang gespeichert.'),
               },
-              style: const TextStyle(color: textDim, fontSize: 13),
+              style: TextStyle(color: textDim, fontSize: 13),
             ),
           ]),
         ),

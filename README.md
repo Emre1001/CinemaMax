@@ -129,6 +129,7 @@ Die App ist nicht signiert. Auf **Weitere Informationen** klicken, dann **Trotzd
 <td valign="top">
 
 ### ⚙️ Einstellungen (über 40)
+- **Erscheinungsbild**: hell, dunkel oder wie das Gerät (wechselt mit dem System)
 - **Akzentfarbe**: 10 Vorlagen oder eigene Farbe
 - **Sprachen**: Deutsch, English, Türkçe (folgt dem System)
 - **Kindersicherung** mit PIN, Kategorien ausblenden, App-PIN

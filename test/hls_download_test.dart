@@ -48,6 +48,26 @@ void main() {
 
   tearDownAll(() => server.close(force: true));
 
+  test('1920×1088 gilt beim Download als 1080p', () {
+    final v = [
+      (uri: Uri.parse('a'), height: 2160, bandwidth: 20000000, separateAudio: false),
+      (uri: Uri.parse('b'), height: 1088, bandwidth: 6000000, separateAudio: false),
+      (uri: Uri.parse('c'), height: 720, bandwidth: 3000000, separateAudio: false),
+    ];
+    expect(pickVariant(v, 1080).height, 1088);
+    expect(pickVariant(v, 0).height, 2160);
+    expect(pickVariant(v, 360).height, 720); // nichts passt: kleinste
+  });
+
+  test('Sicherung enthält keine gerätebezogene Leistungsmessung', () {
+    store.set('perfSlow', true);
+    store.set('perfVerySlow', true);
+    store.set('accent', 0xFF30A46C);
+    final backup = store.exportBackup();
+    expect(backup, isNot(contains('perfSlow')));
+    expect(backup, contains('accent'));
+  });
+
   test('Qualitäten mit geschätzter Größe', () async {
     final s = Source(id: 's', name: 'S', type: SourceType.m3u, url: '');
     final q = await hlsQualities(s, '$base/film.m3u8');

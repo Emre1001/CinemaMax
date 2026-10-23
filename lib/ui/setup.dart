@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../device_check.dart';
 import '../perf.dart';
@@ -61,22 +62,57 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  // Sprachwechsel baut die ganze App neu auf: Seite merken
+  // Seite merken, falls die Einrichtung neu aufgebaut wird
   static int _resume = 0;
   static const _count = 7;
   late int _page = _resume;
   bool _forward = true;
   // Früh starten: die Bildschirm-Seite braucht die echte Auflösung, der Check ist dann schon fertig
   final Future<DeviceInfo> _device = DeviceCheck.run();
+  final _next = FocusNode();
+  // Fernbedienung: „Hoch“ aus der unteren Leiste führt zurück zum zuletzt gewählten Element der Seite,
+  // nicht zum nächstbesten oben (z. B. „Überspringen“, wenn darüber nichts Wählbares liegt)
+  final _pageNode = FocusNode(canRequestFocus: false, skipTraversal: true);
+  FocusNode? _lastInPage;
+
+  void _track() {
+    final f = FocusManager.instance.primaryFocus;
+    if (f != null && f.ancestors.contains(_pageNode)) _lastInPage = f;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addListener(_track);
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance.removeListener(_track);
+    _next.dispose();
+    _pageNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _barKey(FocusNode _, KeyEvent e) {
+    final last = _lastInPage;
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.arrowUp) return KeyEventResult.ignored;
+    if (last == null || last.context == null || !last.canRequestFocus) return KeyEventResult.ignored;
+    last.requestFocus();
+    return KeyEventResult.handled;
+  }
 
   void _go(int to) {
     if (to < 0 || to >= _count || to == _page) return;
+    _lastInPage = null;
     // Fokus der alten Seite lösen: sonst greift der Autofokus der neuen Seite nicht
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       _forward = to > _page;
       _page = _resume = to;
     });
+    // Geräte-Check hat nichts zum Auswählen: „Weiter“ bekommt den Fokus (Fernbedienung)
+    if (to == 5) WidgetsBinding.instance.addPostFrameCallback((_) => _next.requestFocus());
   }
 
   /// Fertig oder übersprungen: zum Start, optional gleich weiter nach [then].
@@ -116,7 +152,8 @@ class _SetupScreenState extends State<SetupScreen> {
                   Expanded(
                     child: AnimatedSwitcher(
                       duration: fxMs(620),
-                      reverseDuration: fxMs(360),
+                      // Alte Seite schnell weg, neue blendet erst danach ein (nie beide halb sichtbar)
+                      reverseDuration: fxMs(200),
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeInCubic,
                       layoutBuilder: (cur, prev) => Stack(fit: StackFit.expand, children: [...prev, ?cur]),
@@ -133,29 +170,35 @@ class _SetupScreenState extends State<SetupScreen> {
                             child: child,
                           );
                         }
+                        final fade = incoming ? CurvedAnimation(parent: a, curve: const Interval(.3, 1)) : a;
                         return ExcludeFocus(
                           excluding: !incoming,
                           child: IgnorePointer(
                             ignoring: !incoming,
                             child: FadeTransition(
-                              opacity: a,
+                              opacity: fade,
                               child: SlideTransition(
                                 position: Tween(begin: Offset(dx, 0), end: Offset.zero).animate(a),
-                                child: Perf.lite ? child : ScaleTransition(scale: Tween(begin: .94, end: 1.0).animate(a), child: child),
+                                child: ScaleTransition(scale: Tween(begin: .96, end: 1.0).animate(a), child: child),
                               ),
                             ),
                           ),
                         );
                       },
-                      child: KeyedSubtree(key: ValueKey(_page), child: _pageAt(_page)),
+                      child: KeyedSubtree(
+                        key: ValueKey(_page),
+                        child: Focus(focusNode: _pageNode, child: _pageAt(_page)),
+                      ),
                     ),
                   ),
-                  if (_page > 0 && _page < _count - 1)
-                    // Pro Seite neu: auf dem Geräte-Check (nichts zum Auswählen) bekommt „Weiter“ den Fokus
-                    KeyedSubtree(
-                      key: ValueKey('bar$_page'),
-                      child: _BottomBar(onBack: () => _go(_page - 1), onNext: () => _go(_page + 1), focusNext: _page == 5),
-                    ),
+                  // Bleibt stehen (kein Neuaufbau je Seite); auf erster und letzter Seite unsichtbar
+                  _BottomBar(
+                    onKey: _barKey,
+                    visible: _page > 0 && _page < _count - 1,
+                    onBack: () => _go(_page - 1),
+                    onNext: () => _go(_page + 1),
+                    nextNode: _next,
+                  ),
                 ]),
               ),
             ]),
@@ -210,10 +253,13 @@ class _TopBar extends StatelessWidget {
               child: SlideTransition(position: Tween(begin: const Offset(0, .6), end: Offset.zero).animate(a), child: c),
             ),
             child: Text('${page + 1} / $count',
-                key: ValueKey(page), style: const TextStyle(color: textDim, fontWeight: FontWeight.w700)),
+                key: ValueKey(page), style: TextStyle(color: textDim, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(width: 6),
-          AnimatedOpacity(
+          // Letzte Seite: unsichtbar und für die Fernbedienung nicht erreichbar
+          ExcludeFocus(
+           excluding: onSkip == null,
+           child: AnimatedOpacity(
             opacity: onSkip == null ? 0 : 1,
             duration: fxMs(250),
             child: Tap(
@@ -224,6 +270,7 @@ class _TopBar extends StatelessWidget {
                 child: Text(tr('Überspringen'), style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
             ),
+           ),
           ),
         ]),
         const SizedBox(height: 10),
@@ -236,7 +283,7 @@ class _TopBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                   child: Container(
                     height: 4,
-                    color: Colors.white12,
+                    color: ink(.12),
                     child: AnimatedFractionallySizedBox(
                       duration: fxMs(700),
                       curve: Curves.easeOutCubic,
@@ -260,17 +307,35 @@ class _TopBar extends StatelessWidget {
 
 class _BottomBar extends StatelessWidget {
   final VoidCallback onBack, onNext;
-  final bool focusNext;
-  const _BottomBar({required this.onBack, required this.onNext, this.focusNext = false});
+  final bool visible;
+  final FocusNode nextNode;
+  final FocusOnKeyEventCallback onKey;
+  const _BottomBar(
+      {required this.visible, required this.onBack, required this.onNext, required this.nextNode, required this.onKey});
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
-        child: Row(children: [
-          GlowButton(label: tr('Zurück'), icon: Icons.arrow_back_rounded, leading: true, onTap: onBack),
-          const Spacer(),
-          GlowButton(label: tr('Weiter'), icon: Icons.arrow_forward_rounded, primary: true, autofocus: focusNext, onTap: onNext),
-        ]),
+  Widget build(BuildContext context) => Focus(
+       canRequestFocus: false,
+       skipTraversal: true,
+       onKeyEvent: onKey,
+       child: ExcludeFocus(
+        excluding: !visible,
+        child: IgnorePointer(
+          ignoring: !visible,
+          child: AnimatedOpacity(
+            opacity: visible ? 1 : 0,
+            duration: fxMs(250),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
+              child: Row(children: [
+                GlowButton(label: tr('Zurück'), icon: Icons.arrow_back_rounded, leading: true, onTap: onBack),
+                const Spacer(),
+                GlowButton(label: tr('Weiter'), icon: Icons.arrow_forward_rounded, primary: true, focusNode: nextNode, onTap: onNext),
+              ]),
+            ),
+          ),
+        ),
+       ),
       );
 }
 
@@ -307,7 +372,7 @@ class _PageFrame extends StatelessWidget {
                     if (subtitle != null && !compact) ...[
                       const SizedBox(height: 8),
                       Rise(1,
-                          child: Text(subtitle!, style: const TextStyle(color: textDim, fontSize: 15.5, height: 1.45))),
+                          child: Text(subtitle!, style: TextStyle(color: textDim, fontSize: 15.5, height: 1.45))),
                     ],
                     if (title != null) SizedBox(height: compact ? 14 : 28),
                     child,
@@ -342,7 +407,7 @@ class _Welcome extends StatelessWidget {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         _LogoHero(size: short ? 46 : (wide ? 74 : 60)),
         SizedBox(height: short ? 6 : 18),
-        Rise(1, child: Text(tr('Willkommen bei'), style: const TextStyle(color: textDim, fontSize: 18, fontWeight: FontWeight.w600))),
+        Rise(1, child: Text(tr('Willkommen bei'), style: TextStyle(color: textDim, fontSize: 18, fontWeight: FontWeight.w600))),
         Rise(2,
             child: Shimmer(
               child: Text('CinemaMax',
@@ -355,7 +420,7 @@ class _Welcome extends StatelessWidget {
               child: Text(
                 tr('In einer Minute eingerichtet: Sprache, Aussehen, Bildschirm und ein Check, was dein Gerät alles abspielt.'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: textDim, fontSize: 16, height: 1.5),
+                style: TextStyle(color: textDim, fontSize: 16, height: 1.5),
               ),
             )),
         SizedBox(height: short ? 14 : 24),
@@ -368,7 +433,7 @@ class _Welcome extends StatelessWidget {
               child: GlowButton(label: tr("Los geht's"), icon: Icons.arrow_forward_rounded, primary: true, big: true, autofocus: true, onTap: onStart),
             )),
         const SizedBox(height: 12),
-        Rise(10, child: Text(tr('Dauert weniger als eine Minute'), style: const TextStyle(color: textDim, fontSize: 12.5))),
+        Rise(10, child: Text(tr('Dauert weniger als eine Minute'), style: TextStyle(color: textDim, fontSize: 12.5))),
       ]),
     );
   }
@@ -476,7 +541,7 @@ class _LogoHeroState extends State<_LogoHero> with TickerProviderStateMixin {
                   angle: (1 - land) * -.6,
                   child: Transform.scale(
                     scale: .3 + .7 * land,
-                    child: SizedBox(width: u * .82, height: u, child: CustomPaint(painter: PlayTriangle(Colors.white))),
+                    child: SizedBox(width: u * .82, height: u, child: CustomPaint(painter: PlayTriangle(fg))),
                   ),
                 ),
               ),
@@ -534,7 +599,7 @@ class _ChoiceCard extends StatelessWidget {
                 Text(title, style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
                 if (detail != null) ...[
                   const SizedBox(height: 2),
-                  Text(detail!, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim, fontSize: 13)),
+                  Text(detail!, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: textDim, fontSize: 13)),
                 ],
               ]),
             ),
@@ -595,15 +660,15 @@ class _Grid extends StatelessWidget {
 
 class _Chip extends StatelessWidget {
   final String label;
-  final bool selected;
+  final bool selected, autofocus;
   final VoidCallback onTap;
-  const _Chip({required this.label, required this.selected, required this.onTap});
+  const _Chip({required this.label, required this.selected, required this.onTap, this.autofocus = false});
 
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     return Tap(
-      autofocus: selected,
+      autofocus: autofocus,
       onTap: onTap,
       radius: 100,
       scale: 1.08,
@@ -612,13 +677,13 @@ class _Chip extends StatelessWidget {
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? accent : Colors.white.withValues(alpha: .07),
-          border: Border.all(color: selected ? accent : Colors.white12),
+          color: selected ? accent : ink(.07),
+          border: Border.all(color: selected ? accent : ink(.12)),
           borderRadius: BorderRadius.circular(100),
         ),
         child: Text(label,
             style: TextStyle(
-                color: selected ? store.onAccent : Colors.white, fontWeight: FontWeight.w700, fontSize: 14.5)),
+                color: selected ? store.onAccent : fg, fontWeight: FontWeight.w700, fontSize: 14.5)),
       ),
     );
   }
@@ -705,18 +770,37 @@ class _LookPage extends StatelessWidget {
           gradient: RadialGradient(colors: [accent.withValues(alpha: .35), accent.withValues(alpha: .04)]),
           border: Border.all(color: accent.withValues(alpha: .5), width: 1.5),
         ),
-        child: Icon(_deviceIcon(current), size: wide ? 96 : 56, color: Colors.white),
+        child: Icon(_deviceIcon(current), size: wide ? 96 : 56, color: fg),
       ),
     );
-    final colors = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    final theme = store.get('theme', 'system');
+    final appearance = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Rise(6, child: Text(tr('Erscheinungsbild'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+      const SizedBox(height: 12),
+      Rise(
+        7,
+        distance: 14,
+        child: Wrap(spacing: 10, runSpacing: 10, children: [
+          for (final (k, label) in [('system', tr('Wie das Gerät')), ('dark', tr('Dunkel')), ('light', tr('Hell'))])
+            _Chip(label: label, selected: theme == k, onTap: () => store.set('theme', k)),
+        ]),
+      ),
+    ]);
+    final accentRow = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Rise(7, child: Text(tr('Akzentfarbe'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
       const SizedBox(height: 12),
       swatches,
     ]);
+    // Breit: Erscheinungsbild und Farbe nebeneinander, damit alles ohne Scrollen auf den Fernseher passt
+    final colors = Wrap(spacing: 36, runSpacing: 22, children: [appearance, accentRow]);
+    // Fernseher (540 hoch): Vorschau weglassen, Erscheinungsbild und Farbe passen dann nebeneinander
+    final short = MediaQuery.sizeOf(context).height < 600;
     return _PageFrame(
       title: tr('Wie schaust du?'),
       subtitle: tr('Die Oberfläche passt sich an: Fernbedienung, Touch oder Maus.'),
-      child: wide
+      child: short
+          ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [cards, const SizedBox(height: 22), colors])
+          : wide
           ? Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
               Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [cards, const SizedBox(height: 26), colors])),
@@ -752,7 +836,7 @@ class _Swatch extends StatelessWidget {
           decoration: BoxDecoration(
             color: color,
             shape: BoxShape.circle,
-            border: Border.all(color: selected ? Colors.white : Colors.transparent, width: 3),
+            border: Border.all(color: selected ? fg : Colors.transparent, width: 3),
           ),
           child: selected
               ? Icon(Icons.check_rounded,
@@ -786,8 +870,8 @@ class _PerfPage extends StatelessWidget {
         Icons.auto_awesome_rounded,
       ),
       ('full', tr('Alle Effekte'), tr('Bewegter Hintergrund, Glanz und Lichter'), Icons.auto_fix_high_rounded),
-      ('lite', tr('Flüssig'), tr('Für TV-Boxen und ältere Handys: ruhiger und schneller'), Icons.speed_rounded),
-      ('speed', tr('Speed'), tr('Keine Animationen, kein Hintergrund, keine Effekte: am schnellsten'), Icons.bolt_rounded),
+      ('lite', tr('Flüssig'), tr('Für TV-Boxen und ältere Handys'), Icons.speed_rounded),
+      ('speed', tr('Speed'), tr('Ohne Animationen und Effekte'), Icons.bolt_rounded),
     ];
     void choose(String k) => store.set('perf', k);
 
@@ -870,14 +954,14 @@ class _FpsMeterState extends State<_FpsMeter> with SingleTickerProviderStateMixi
               const SizedBox(width: 14),
               Text('${fps.round()}', style: TextStyle(fontSize: 38, fontWeight: FontWeight.w900, color: color, height: 1)),
               const SizedBox(width: 6),
-              const Text('fps', style: TextStyle(color: textDim, fontWeight: FontWeight.w700)),
+              Text('fps', style: TextStyle(color: textDim, fontWeight: FontWeight.w700)),
             ]),
             const SizedBox(height: 4),
-            Text(tr('Bilder pro Sekunde gerade'), style: const TextStyle(color: textDim, fontSize: 12.5)),
+            Text(tr('Bilder pro Sekunde gerade'), style: TextStyle(color: textDim, fontSize: 12.5)),
             const SizedBox(height: 12),
             SizedBox(height: 46, width: double.infinity, child: CustomPaint(painter: _FramesPainter(List.of(Perf.frameMs), accent))),
             const SizedBox(height: 6),
-            Text(tr('Linie: 60 fps. Balken darunter sind flüssig.'), style: const TextStyle(color: textDim, fontSize: 11.5)),
+            Text(tr('Linie: 60 fps. Balken darunter sind flüssig.'), style: TextStyle(color: textDim, fontSize: 11.5)),
           ]);
         },
       ),
@@ -902,7 +986,7 @@ class _FramesPainter extends CustomPainter {
       canvas.drawRect(Rect.fromLTWH(i * bw, s.height - h, math.max(1, bw - 1), h), p);
     }
     final y = s.height * (1 - 16.7 / top);
-    canvas.drawLine(Offset(0, y), Offset(s.width, y), Paint()..color = Colors.white38..strokeWidth = 1);
+    canvas.drawLine(Offset(0, y), Offset(s.width, y), Paint()..color = ink(.38)..strokeWidth = 1);
   }
 
   @override
@@ -945,7 +1029,7 @@ class _ScreenPage extends StatelessWidget {
     };
     final chips = Wrap(spacing: 10, runSpacing: 10, children: [
       for (final (i, (v, label)) in options.indexed)
-        Rise(3 + i, distance: 14, child: _Chip(label: label, selected: cur == v, onTap: () => store.set('maxRes', v))),
+        Rise(3 + i, distance: 14, child: _Chip(label: label, selected: cur == v, autofocus: cur == v, onTap: () => store.set('maxRes', v))),
     ]);
     final text = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       AnimatedSwitcher(
@@ -959,7 +1043,7 @@ class _ScreenPage extends StatelessWidget {
       ),
       const SizedBox(height: 8),
       Text(tr('Gilt für Streams mit mehreren Qualitäten (meist HLS). Am PC wird 4K zusätzlich nur in Bildschirmgröße gezeichnet.'),
-          style: const TextStyle(color: textDim, fontSize: 12.5, height: 1.4)),
+          style: TextStyle(color: textDim, fontSize: 12.5, height: 1.4)),
     ]);
     final viz = FutureBuilder<DeviceInfo>(
       future: device,
@@ -1111,7 +1195,7 @@ class _ResPainter extends CustomPainter {
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, r),
         Paint()
-          ..color = Colors.white.withValues(alpha: .16)
+          ..color = ink(.16)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1,
       );
@@ -1120,7 +1204,7 @@ class _ResPainter extends CustomPainter {
         text: TextSpan(
           text: label,
           style: TextStyle(
-              color: on ? Colors.white : Colors.white38,
+              color: on ? fg : ink(.38),
               fontSize: lvl >= 1080 ? 12.5 : 10.5,
               fontWeight: FontWeight.w800),
         ),
@@ -1204,7 +1288,7 @@ class _CheckPageState extends State<_CheckPage> with SingleTickerProviderStateMi
           Padding(
             padding: const EdgeInsets.only(bottom: 4, top: 2),
             child: Text(tr(name).toUpperCase(),
-                style: const TextStyle(color: textDim, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1.4)),
+                style: TextStyle(color: textDim, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1.4)),
           ),
           for (final (i, it) in groups[name]!) _CheckRow(item: it, state: shown - i),
         ]);
@@ -1242,7 +1326,7 @@ class _CheckPageState extends State<_CheckPage> with SingleTickerProviderStateMi
         const SizedBox(height: 18),
         list,
         const SizedBox(height: 8),
-        Text(tr('Ergebnis: {0} von {1} Formaten laufen.', [okAll, total]), style: const TextStyle(color: textDim, fontSize: 12.5)),
+        Text(tr('Ergebnis: {0} von {1} Formaten laufen.', [okAll, total]), style: TextStyle(color: textDim, fontSize: 12.5)),
       ]);
     }
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1288,7 +1372,7 @@ class _CheckRow extends StatelessWidget {
                     )
                   : state >= 0
                       ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Container(width: 7, height: 7, decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle)),
+                      : Container(width: 7, height: 7, decoration: BoxDecoration(color: ink(.24), shape: BoxShape.circle)),
             ),
           ),
           const SizedBox(width: 12),
@@ -1336,7 +1420,7 @@ class _ScoreRing extends StatelessWidget {
               FittedBox(
                 child: Text.rich(TextSpan(children: [
                   TextSpan(text: '$ok', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: -1.5)),
-                  TextSpan(text: ' / $total', style: const TextStyle(fontSize: 16, color: textDim, fontWeight: FontWeight.w700)),
+                  TextSpan(text: ' / $total', style: TextStyle(fontSize: 16, color: textDim, fontWeight: FontWeight.w700)),
                 ])),
               ),
               Text(done ? tr('laufen') : tr('prüfe …'), style: TextStyle(color: done ? color : textDim, fontSize: 12.5, fontWeight: FontWeight.w700)),
@@ -1356,7 +1440,7 @@ class _RingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size s) {
     final c = s.center(Offset.zero), r = s.shortestSide / 2 - 8;
-    canvas.drawCircle(c, r, Paint()..color = Colors.white10..style = PaintingStyle.stroke..strokeWidth = 9);
+    canvas.drawCircle(c, r, Paint()..color = ink(.1)..style = PaintingStyle.stroke..strokeWidth = 9);
     final rect = Rect.fromCircle(center: c, radius: r);
     canvas.drawArc(
       rect,
@@ -1419,7 +1503,7 @@ class _DonePage extends StatelessWidget {
           const SizedBox(height: 8),
           Rise(3,
               child: Text(tr('Viel Spaß mit CinemaMax. Alles lässt sich später in den Einstellungen ändern.'),
-                  textAlign: TextAlign.center, style: const TextStyle(color: textDim, fontSize: 15.5, height: 1.45))),
+                  textAlign: TextAlign.center, style: TextStyle(color: textDim, fontSize: 15.5, height: 1.45))),
           const SizedBox(height: 20),
           Wrap(alignment: WrapAlignment.center, spacing: 10, runSpacing: 10, children: [
             for (final (i, (icon, text)) in chips.indexed) Rise(4 + i, distance: 14, child: _Feature(icon, text)),
@@ -1583,7 +1667,7 @@ class _ConfettiPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size s) {
     if (t.value == 0 || t.isCompleted) return;
-    final colors = [accent, Colors.white, Color.lerp(accent, Colors.white, .5)!, const Color(0xFFE5A23A), HSLColor.fromColor(accent).withHue((HSLColor.fromColor(accent).hue + 50) % 360).toColor()];
+    final colors = [accent, fg, Color.lerp(accent, Colors.white, .5)!, const Color(0xFFE5A23A), HSLColor.fromColor(accent).withHue((HSLColor.fromColor(accent).hue + 50) % 360).toColor()];
     final origin = Offset(s.width / 2, s.height * .3);
     final unit = math.max(s.width, s.height);
     final p = Paint();

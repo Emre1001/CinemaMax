@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'i18n.dart';
+import 'ui/common.dart' show ink;
 
 /// Fehler als verständlicher deutscher Satz (übersetzt), ohne Code oder Fachbegriffe.
 /// [playback]: Fehler beim Abspielen eines Streams (andere Ursachen und Rückfalltext).
@@ -94,11 +95,11 @@ Widget friendlyErrorWidget(FlutterErrorDetails d) => Material(
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.error_outline_rounded, color: Colors.white54, size: 20),
+            Icon(Icons.error_outline_rounded, color: ink(.54), size: 20),
             const SizedBox(width: 8),
             Flexible(
               child: Text(tr('Dieser Bereich konnte nicht angezeigt werden.'),
-                  style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                  style: TextStyle(color: ink(.54), fontSize: 13)),
             ),
           ]),
         ),
