@@ -26,6 +26,17 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 
 ---
 
+## 🆕 Neu in 1.7.0
+
+- **Einrichtung beim ersten Start**: Sprache, Aussehen, Leistung, Bildschirm und ein **Geräte-Check**, der zeigt, welche Formate dein Gerät abspielt (H.265, AV1, Dolby Digital, DTS, 4K, HDR)
+- **Hell, dunkel oder wie das Gerät**, mit neuem Design und flüssigen Übergängen
+- **Leistungsmodus**: Alle Effekte, Flüssig (TV-Boxen, alte Handys) oder Speed ohne Animationen; die App erkennt schwache Geräte selbst
+- **Bildschirmauflösung**: Streams nie größer als der Bildschirm zeigt (144p bis 4K), spart Daten und Leistung
+- **Mehr abspielbar**: Dolby Digital, DTS und TrueHD ohne Decoder im Gerät, Streams von Servern mit abgelaufenem https-Zertifikat, weitere externe Player (mpv, Just Player, Kodi)
+- **Fernbedienung** an vielen Stellen verbessert, weniger Ruckeln bei Live-Sendern (mpv)
+
+---
+
 ## ⬇️ Download
 
 | Gerät | Datei | Hinweis |
@@ -235,9 +246,10 @@ Nein. CinemaMax ist nur ein Player. Er spielt die freien, öffentlichen Listen v
 <summary><b>Ein Sender bleibt schwarz.</b></summary>
 
 1. Im Player auf **Info** schauen: Dort steht der Fehler, z. B. `HTTP 403`.
-2. In den Einstellungen einen anderen **User-Agent** probieren (VLC, Kodi, Browser …).
-3. **Player** von ExoPlayer auf **mpv** umstellen, oder im Fehlerbildschirm „Mit mpv versuchen“.
-4. Bei Xtream das **Live-Format** zwischen MPEG-TS und HLS wechseln.
+2. Der **Geräte-Check** (Einstellungen › Start) zeigt, ob dein Gerät das Format abspielen kann.
+3. In den Einstellungen einen anderen **User-Agent** probieren (VLC, Kodi, Browser …).
+4. **Player** von ExoPlayer auf **mpv** umstellen, oder im Fehlerbildschirm „Mit mpv versuchen“.
+5. Bei Xtream das **Live-Format** zwischen MPEG-TS und HLS wechseln.
 
 </details>
 
@@ -251,7 +263,14 @@ Nur an deinen eigenen Server. CinemaMax hat keinen eigenen Server und sammelt ke
 <details>
 <summary><b>Läuft das auf meiner TV-Box?</b></summary>
 
-Ab Android 7. Für schwache Boxen: **Animationen reduzieren** und **Videoausgabe SurfaceView** in den Einstellungen.
+Ab Android 7. CinemaMax erkennt schwache Boxen selbst und schaltet auf **Flüssig** oder **Speed** (ohne Animationen). Selbst wählen: Einstellungen › Darstellung › **Leistung**. Für 4K und HDR auf dem Fernseher hilft **Videoausgabe SurfaceView** (Einstellungen › Player).
+
+</details>
+
+<details>
+<summary><b>Warum lädt ein Stream nicht in 4K?</b></summary>
+
+CinemaMax lädt Streams nie größer, als dein Bildschirm zeigen kann: Ein 1080p-Gerät bekommt höchstens 1080p und spart so Daten. Unter Einstellungen › Qualität & Daten › **Bildschirmauflösung** gibt es „Keine Grenze“ oder feste Stufen von 144p bis 4K.
 
 </details>
 
