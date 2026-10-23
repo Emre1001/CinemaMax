@@ -89,7 +89,7 @@ class DownloadButton extends StatelessWidget {
                       width: 22,
                       height: 22,
                       child: CircularProgressIndicator(value: d!.progress, strokeWidth: 2.5, color: store.accent))
-                  : Icon(icon, size: 22, color: d?.status == DlStatus.done ? store.accent : Colors.white70),
+                  : Icon(icon, size: 22, color: d?.status == DlStatus.done ? store.accent : ink(.7)),
             ),
           );
         },
@@ -124,14 +124,14 @@ class DownloadsView extends StatelessWidget {
           if (list.isEmpty) {
             return Center(
               child: Text(tr('Noch keine Downloads.\nFilme und Folgen über „Herunterladen“ offline speichern.'),
-                  textAlign: TextAlign.center, style: const TextStyle(color: textDim, fontSize: 15)),
+                  textAlign: TextAlign.center, style: TextStyle(color: textDim, fontSize: 15)),
             );
           }
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
               Row(children: [
-                Text(tr('{0} belegt', [fmtBytes(downloads.usedBytes)]), style: const TextStyle(color: textDim)),
+                Text(tr('{0} belegt', [fmtBytes(downloads.usedBytes)]), style: TextStyle(color: textDim)),
                 const Spacer(),
                 Pill(tr('Alle löschen'), icon: Icons.delete_outline_rounded, onTap: () async {
                   final ok = await pick(context, tr('Alle Downloads löschen?'), {false: tr('Abbrechen'), true: tr('Löschen')});
@@ -176,7 +176,7 @@ class DownloadsView extends StatelessWidget {
                             ),
                             if (d.status == DlStatus.running || d.status == DlStatus.paused) ...[
                               SizedBox(height: 8),
-                              LinearProgressIndicator(value: d.progress, minHeight: 3, color: store.accent, backgroundColor: Colors.white12),
+                              LinearProgressIndicator(value: d.progress, minHeight: 3, color: store.accent, backgroundColor: ink(.12)),
                             ],
                           ]),
                         ),

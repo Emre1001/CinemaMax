@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,11 +8,33 @@ import '../i18n.dart';
 import '../store.dart';
 
 // ---------------- Farben ----------------
-const bg = Color(0xFF0A0A0B);
-const surface = Color(0xFF141416);
-const surface2 = Color(0xFF1D1D21);
-const line = Color(0xFF2A2A30);
-const textDim = Color(0xFF8E8E96);
+/// Helles Erscheinungsbild aktiv (Einstellung „Erscheinungsbild“, „system“ folgt dem Gerät). Von der App gesetzt.
+bool isLight = false;
+
+/// Hell oder dunkel nach Einstellung und Gerät.
+bool resolveLight() {
+  final t = store.get('theme', 'system');
+  return t == 'light' || (t == 'system' && PlatformDispatcher.instance.platformBrightness == Brightness.light);
+}
+
+Color get bg => isLight ? const Color(0xFFF4F4F7) : kBg;
+Color get surface => isLight ? const Color(0xFFFFFFFF) : kSurface;
+Color get surface2 => isLight ? const Color(0xFFE9E9EF) : kSurface2;
+Color get line => isLight ? const Color(0xFFD9D9E0) : kLine;
+Color get textDim => isLight ? const Color(0xFF66666F) : kDim;
+
+/// Schrift- und Symbolfarbe auf dem Hintergrund.
+Color get fg => isLight ? const Color(0xFF111114) : Colors.white;
+
+/// [fg] mit Deckkraft [a] (Rahmen, Flächen, gedimmte Schrift): ersetzt ink(.1) … white70.
+Color ink(double a) => fg.withValues(alpha: a);
+
+// Immer dunkel: Player über dem Video
+const kBg = Color(0xFF0A0A0B);
+const kSurface = Color(0xFF141416);
+const kSurface2 = Color(0xFF1D1D21);
+const kLine = Color(0xFF2A2A30);
+const kDim = Color(0xFF8E8E96);
 
 // ---------------- Gerätetyp ----------------
 enum Ff { phone, tablet, tv, desktop }
@@ -160,15 +183,15 @@ class _TapState extends State<Tap> {
               duration: store.anim,
               decoration: BoxDecoration(
                 borderRadius: r,
-                color: widget.fill && (_ring || _hover) ? Colors.white.withValues(alpha: _ring ? .12 : .06) : null,
+                color: widget.fill && (_ring || _hover) ? ink(_ring ? .12 : .06) : null,
                 boxShadow: _ring && !widget.fill
-                    ? [BoxShadow(color: Colors.black.withValues(alpha: .6), blurRadius: 24, offset: const Offset(0, 10))]
+                    ? [BoxShadow(color: Colors.black.withValues(alpha: isLight ? .18 : .6), blurRadius: 24, offset: const Offset(0, 10))]
                     : null,
               ),
               foregroundDecoration: BoxDecoration(
                 borderRadius: r,
                 border: Border.all(
-                  color: _ring ? (widget.fill ? accent : Colors.white) : Colors.transparent,
+                  color: _ring ? (widget.fill ? accent : fg) : Colors.transparent,
                   width: 2,
                 ),
               ),
@@ -197,7 +220,7 @@ class Artwork extends StatelessWidget {
       color: surface2,
       alignment: Alignment.center,
       child: Icon(fit == BoxFit.contain ? Icons.tv_rounded : Icons.movie_outlined,
-          color: Colors.white24, size: fit == BoxFit.contain ? 30 : 38),
+          color: ink(.24), size: fit == BoxFit.contain ? 30 : 38),
     );
     if (url == null || !store.get('showLogos', true)) return placeholder;
     final img = Image.network(
@@ -273,15 +296,15 @@ class Pill extends StatelessWidget {
       child: AnimatedContainer(
         duration: store.anim,
         padding: EdgeInsets.symmetric(horizontal: primary ? 22 : 14, vertical: primary ? 12 : 8),
-        color: on ? (primary ? accent : Colors.white) : surface2,
+        color: on ? (primary ? accent : fg) : surface2,
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           if (icon != null) ...[
-            Icon(icon, size: 18, color: on ? (primary ? store.onAccent : Colors.black) : Colors.white),
+            Icon(icon, size: 18, color: on ? (primary ? store.onAccent : bg) : fg),
             const SizedBox(width: 6),
           ],
           Text(label,
               style: TextStyle(
-                  color: on ? (primary ? store.onAccent : Colors.black) : Colors.white,
+                  color: on ? (primary ? store.onAccent : bg) : fg,
                   fontWeight: FontWeight.w600,
                   fontSize: primary ? 15 : 13)),
         ]),
@@ -464,7 +487,7 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
   Widget _slider(String label, double value, double max, ValueChanged<double> onChanged, List<Color> track) => Padding(
         padding: const EdgeInsets.only(top: 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(color: textDim, fontSize: 13)),
+          Text(label, style: TextStyle(color: textDim, fontSize: 13)),
           const SizedBox(height: 6),
           Container(
             height: 10,

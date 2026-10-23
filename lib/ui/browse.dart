@@ -176,16 +176,16 @@ class _BrowseScreenState extends State<BrowseScreen> {
               ? Column(mainAxisSize: MainAxisSize.min, children: [
                   const SizedBox(width: 34, height: 34, child: CircularProgressIndicator(strokeWidth: 3)),
                   const SizedBox(height: 20),
-                  Text(tr('Lade {0} …', [widget.source.name]), style: const TextStyle(color: textDim)),
+                  Text(tr('Lade {0} …', [widget.source.name]), style: TextStyle(color: textDim)),
                 ])
               : Column(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.cloud_off_rounded, size: 48, color: textDim),
+                  Icon(Icons.cloud_off_rounded, size: 48, color: textDim),
                   const SizedBox(height: 16),
                   Text(tr('Server nicht erreichbar'), style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Text(explain(_error!), textAlign: TextAlign.center, style: const TextStyle(color: textDim)),
+                    child: Text(explain(_error!), textAlign: TextAlign.center, style: TextStyle(color: textDim)),
                   ),
                   const SizedBox(height: 22),
                   Row(mainAxisSize: MainAxisSize.min, children: [
@@ -267,7 +267,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
         body: Row(children: [
           Focus(
             focusNode: _navFocus,
-            onFocusChange: (v) => setState(() => _navOpen = v),
+            onFocusChange: (v) {
+              setState(() => _navOpen = v);
+              // Fernbedienung: mit „Links“ in die Leiste landet man sonst auf dem nächstgelegenen Eintrag
+              // (z. B. Downloads) und wechselt ungewollt den Bereich: immer beim aktiven Bereich ankommen
+              if (v && tv && !_navNodes[_tab]!.hasPrimaryFocus) _navNodes[_tab]!.requestFocus();
+            },
             child: AnimatedContainer(
               duration: store.anim,
               curve: Curves.easeOutCubic,
@@ -314,7 +319,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   Text(tr(_tabInfo[_tab]!.$1),
                       style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -.8)),
                   const SizedBox(width: 14),
-                  Text(widget.source.name, style: const TextStyle(color: textDim, fontSize: 14)),
+                  Text(widget.source.name, style: TextStyle(color: textDim, fontSize: 14)),
                   const Spacer(),
                   if (_tab != Tab.settings) ..._actions(),
                   if (store.get('clock', true)) const Padding(padding: EdgeInsets.only(left: 12), child: Clock()),
@@ -359,9 +364,13 @@ class _NavItem extends StatelessWidget {
         focusNode: focusNode,
         autofocus: autofocus,
         onTap: onSelect,
-        // TV: Tab wechselt schon beim Fokussieren (wie Apple TV)
+        // TV: Tab wechselt schon beim Fokussieren (wie Apple TV). Erst nach dem Bild prüfen, ob der Fokus
+        // noch hier ist: beim Betreten der Leiste lenkt sie ihn zum aktiven Bereich um
         onFocus: (v) {
-          if (v && tab != null && tab != Tab.settings && formFactor(context) == Ff.tv) onSelect();
+          if (!v || tab == null || tab == Tab.settings || formFactor(context) != Ff.tv) return;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (focusNode?.hasPrimaryFocus ?? false) onSelect();
+          });
         },
         child: SizedBox(
           height: 46,
@@ -371,7 +380,7 @@ class _NavItem extends StatelessWidget {
               maxWidth: 200,
               child: Row(children: [
                 const SizedBox(width: 14),
-                Icon(icon ?? _tabInfo[tab]!.$2, size: 22, color: selected ? accent : Colors.white70),
+                Icon(icon ?? _tabInfo[tab]!.$2, size: 22, color: selected ? accent : ink(.7)),
                 const SizedBox(width: 16),
                 AnimatedOpacity(
                   opacity: expanded ? 1 : 0,
@@ -380,7 +389,7 @@ class _NavItem extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 15,
                           fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected ? Colors.white : Colors.white70)),
+                          color: selected ? fg : ink(.7))),
                 ),
               ]),
             ),
@@ -634,7 +643,7 @@ class _ContentViewState extends State<ContentView> {
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(tr('Kategorie · {0}', [cats.length - 2 - (cats.contains(_recent) ? 1 : 0)]),
-                            style: const TextStyle(color: textDim, fontSize: 11.5)),
+                            style: TextStyle(color: textDim, fontSize: 11.5)),
                         Text(_label(_sel),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -742,7 +751,7 @@ class _CategoryRow extends StatelessWidget {
               color: selected ? store.accent.withValues(alpha: .14) : Colors.transparent,
               child: Row(children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 18, color: selected ? store.accent : Colors.white60),
+                  Icon(icon, size: 18, color: selected ? store.accent : ink(.6)),
                   const SizedBox(width: 10),
                 ],
                 Expanded(
@@ -752,14 +761,14 @@ class _CategoryRow extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                        color: selected ? Colors.white : Colors.white70,
+                        color: selected ? fg : ink(.7),
                       )),
                 ),
                 if (count >= 0)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(20)),
-                    child: Text('$count', style: const TextStyle(color: Colors.white60, fontSize: 11.5)),
+                    decoration: BoxDecoration(color: ink(.1), borderRadius: BorderRadius.circular(20)),
+                    child: Text('$count', style: TextStyle(color: ink(.6), fontSize: 11.5)),
                   ),
               ]),
             ),
@@ -836,7 +845,7 @@ class MediaGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return Center(child: Text(empty ?? tr('Keine Einträge'), textAlign: TextAlign.center, style: const TextStyle(color: textDim, fontSize: 15)));
+      return Center(child: Text(empty ?? tr('Keine Einträge'), textAlign: TextAlign.center, style: TextStyle(color: textDim, fontSize: 15)));
     }
     final live = items.first.kind == Kind.live;
     final s = store.tileScale * (formFactor(context) == Ff.phone ? .8 : 1);
@@ -938,10 +947,10 @@ class MediaTile extends StatelessWidget {
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           textAlign: TextAlign.center,
-                                          style: const TextStyle(fontSize: 11.5, color: textDim)),
+                                          style: TextStyle(fontSize: 11.5, color: textDim)),
                                       const SizedBox(height: 4),
                                       LinearProgressIndicator(
-                                          value: now.progress, minHeight: 2, color: store.accent, backgroundColor: Colors.white12),
+                                          value: now.progress, minHeight: 2, color: store.accent, backgroundColor: ink(.12)),
                                     ]),
                                   );
                           },
@@ -1265,7 +1274,7 @@ class _SearchViewState extends State<SearchView> {
                   ),
               ])
             : sections.isEmpty
-                ? Center(child: Text(_remoteBusy ? tr('Suche …') : tr('Nichts gefunden'), style: const TextStyle(color: textDim)))
+                ? Center(child: Text(_remoteBusy ? tr('Suche …') : tr('Nichts gefunden'), style: TextStyle(color: textDim)))
                 : _only != null
                     ? MediaGrid(source: widget.source, items: _results[_only]!)
                     : ListView(
@@ -1334,10 +1343,10 @@ class MoreView extends StatelessWidget {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                  if (sub != null) Text(sub, style: const TextStyle(color: textDim, fontSize: 13)),
+                  if (sub != null) Text(sub, style: TextStyle(color: textDim, fontSize: 13)),
                 ]),
               ),
-              const Icon(Icons.chevron_right_rounded, color: textDim),
+              Icon(Icons.chevron_right_rounded, color: textDim),
             ]),
           ),
         ),

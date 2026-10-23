@@ -268,7 +268,7 @@ class Downloads extends ChangeNotifier {
     if (isHls(url)) return _runHls(d, url, headers);
     final f = File(d.file);
     var have = await f.exists() ? await f.length() : 0;
-    final client = _clients[d.url] = http.Client();
+    final client = _clients[d.url] = Repo.iptvClient();
     try {
       final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);
       if (have > 0) req.headers['Range'] = 'bytes=$have-';
@@ -312,7 +312,7 @@ class Downloads extends ChangeNotifier {
     var fails = 0;
     try {
       while (DateTime.now().millisecondsSinceEpoch < d.until) {
-        final client = _clients[d.url] = http.Client();
+        final client = _clients[d.url] = Repo.iptvClient();
         Object? error;
         var got = 0;
         try {
@@ -408,13 +408,14 @@ List<HlsVariant> parseVariants(Uri base, String text) {
 HlsVariant pickVariant(List<HlsVariant> v, int maxHeight) {
   final muxed = v.where((x) => !x.separateAudio).toList();
   final pool = muxed.isNotEmpty ? muxed : v;
-  return pool.where((x) => maxHeight <= 0 || x.height == 0 || x.height <= maxHeight).firstOrNull ?? pool.last;
+  // 1920×1088 zählt als 1080p (wie Engine.fits beim Abspielen)
+  return pool.where((x) => maxHeight <= 0 || x.height == 0 || Engine.fits(x.height, maxHeight)).firstOrNull ?? pool.last;
 }
 
 /// Qualitäten eines HLS-Films mit geschätzter Dateigröße (höchste zuerst). Leer = nur eine Qualität.
 Future<List<({int height, int bytes})>> hlsQualities(Source s, String url) async {
   final (raw, headers) = Engine.splitHeaders(url, Repo.streamHeaders(s));
-  final client = http.Client();
+  final client = Repo.iptvClient();
   try {
     final (base, text) = await _fetchPlaylist(client, Uri.parse(raw), headers);
     final variants = parseVariants(base, text).where((v) => v.height > 0 && !v.separateAudio).toList();
@@ -434,7 +435,7 @@ Future<List<({int height, int bytes})>> hlsQualities(Source s, String url) async
 extension on Downloads {
   /// HLS-Film als eine Datei: Segmente nacheinander anhängen, fortsetzbar ab dem letzten Segment.
   Future<void> _runHls(Download d, String url, Map<String, String> headers) async {
-    final client = _clients[d.url] = http.Client();
+    final client = _clients[d.url] = Repo.iptvClient();
     try {
       var (base, text) = await _fetchPlaylist(client, Uri.parse(url), headers);
       final variants = parseVariants(base, text);

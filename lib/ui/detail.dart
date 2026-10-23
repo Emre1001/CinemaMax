@@ -138,19 +138,19 @@ class _DetailScreenState extends State<DetailScreen> {
           style: TextStyle(fontSize: wide ? 38 : 26, fontWeight: FontWeight.w800, letterSpacing: -1, height: 1.1)),
       if (meta.isNotEmpty) ...[
         const SizedBox(height: 10),
-        Text(meta, style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
+        Text(meta, style: TextStyle(color: ink(.7), fontSize: 14, fontWeight: FontWeight.w500)),
       ],
       if (plot != null) ...[
         const SizedBox(height: 16),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),
-          child: Text(plot, maxLines: 5, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, height: 1.5, color: Colors.white)),
+          child: Text(plot, maxLines: 5, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 15, height: 1.5, color: fg)),
         ),
       ],
       if (director != null || cast != null) ...[
         const SizedBox(height: 12),
         Text([if (director != null) tr('Regie: {0}', [director]), if (cast != null) tr('Mit: {0}', [cast])].join('\n'),
-            maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim, fontSize: 13, height: 1.5)),
+            maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: textDim, fontSize: 13, height: 1.5)),
       ],
       const SizedBox(height: 24),
       buttons,
@@ -210,7 +210,7 @@ class _DetailScreenState extends State<DetailScreen> {
               if (m.kind == Kind.series) ...[
                 const SizedBox(height: 30),
                 if (_error != null)
-                  Text(tr('Episoden konnten nicht geladen werden: {0}', [explain(_error!)]), style: const TextStyle(color: textDim))
+                  Text(tr('Episoden konnten nicht geladen werden: {0}', [explain(_error!)]), style: TextStyle(color: textDim))
                 else if (_eps == null)
                   const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
                 else ...[
@@ -315,7 +315,7 @@ class _EpisodeRow extends StatelessWidget {
                         maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                     if (e.plot != null) ...[
                       const SizedBox(height: 4),
-                      Text(e.plot!, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textDim, fontSize: 13)),
+                      Text(e.plot!, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: textDim, fontSize: 13)),
                     ],
                   ]),
                 ),

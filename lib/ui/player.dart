@@ -453,7 +453,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       if (!mounted || id != _openId || _e.qualityId != null) return;
       final label = await _e.capQuality(max);
       if (label != null) {
-        if (mounted && label.isNotEmpty) _flash(tr('Daten sparen: {0}', [label]));
+        // Nur bei selbst gewählter Grenze melden, nicht bei jedem Sender wegen „Automatisch“
+        if (mounted && label.isNotEmpty && store.get('maxRes', -1) >= 0) _flash(tr('Daten sparen: {0}', [label]));
         return;
       }
     }
@@ -820,7 +821,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     pageBuilder: (c, _, _) => Align(
       alignment: left ? Alignment.centerLeft : Alignment.centerRight,
       child: Material(
-        color: surface.withValues(alpha: .97),
+        color: kSurface.withValues(alpha: .97),
         child: SizedBox(
           width: math.min(width, MediaQuery.sizeOf(c).width * .92),
           height: double.infinity,
@@ -839,7 +840,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     padding: const EdgeInsets.fromLTRB(14, 18, 14, 6),
     child: Text(
       text.toUpperCase(),
-      style: const TextStyle(color: textDim, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1),
+      style: const TextStyle(color: kDim, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1),
     ),
   );
 
@@ -859,7 +860,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
               style: TextStyle(fontSize: 15, fontWeight: selected ? FontWeight.w800 : FontWeight.w500),
             ),
           ),
-          if (value != null) Text(value, style: const TextStyle(color: textDim)),
+          if (value != null) Text(value, style: const TextStyle(color: kDim)),
         ],
       ),
     ),
@@ -890,7 +891,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 _e is ExoEngine
                     ? tr('Untertitel: in den Einstellungen Player „mpv“ wählen')
                     : tr('Keine Untertitel vorhanden'),
-                style: const TextStyle(color: textDim),
+                style: const TextStyle(color: kDim),
               ),
             ),
           for (final t in subs)
@@ -940,7 +941,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                         'Der Anbieter sendet diesen Stream nur in {0} ({1} × {2}). Andere Auflösungen gibt es nur, wenn der Anbieter sie mitliefert, z. B. als eigener 4K-/UHD-Sender.',
                         [_quality(size), size.width.round(), size.height.round()],
                       ),
-                style: const TextStyle(color: textDim),
+                style: const TextStyle(color: kDim),
               ),
             ),
         ],
@@ -1014,7 +1015,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 child: Text(
                   '${j + 1}',
                   textAlign: TextAlign.right,
-                  style: const TextStyle(color: textDim),
+                  style: const TextStyle(color: kDim),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1103,7 +1104,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
               width: 34,
               child: Text(
                 '${ep?.number ?? j + 1}',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: current ? store.accent : textDim),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: current ? store.accent : kDim),
               ),
             ),
             ClipRRect(
@@ -1148,7 +1149,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                       ep!.plot!,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: textDim, fontSize: 12.5, height: 1.3),
+                      style: const TextStyle(color: kDim, fontSize: 12.5, height: 1.3),
                     ),
                   ],
                 ],
@@ -1196,7 +1197,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                         child: Text(k, style: const TextStyle(fontWeight: FontWeight.w800)),
                       ),
                       Expanded(
-                        child: Text(v, style: const TextStyle(color: textDim)),
+                        child: Text(v, style: const TextStyle(color: kDim)),
                       ),
                     ],
                   ),
@@ -1508,7 +1509,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                         ep!.plot!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: textDim, fontSize: 12),
+                        style: const TextStyle(color: kDim, fontSize: 12),
                       ),
                   ],
                 ),
@@ -1625,7 +1626,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                     children: [
                       SizedBox(
                         width: 150,
-                        child: Text(k, style: const TextStyle(color: textDim)),
+                        child: Text(k, style: const TextStyle(color: kDim)),
                       ),
                       Expanded(
                         child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -1697,7 +1698,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             explain(error, playback: true),
             textAlign: TextAlign.center,
             maxLines: 3,
-            style: const TextStyle(color: textDim),
+            style: const TextStyle(color: kDim),
           ),
         ),
         const SizedBox(height: 18),
@@ -2027,7 +2028,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: textDim),
+                  style: const TextStyle(color: kDim),
                 ),
               ),
           ],

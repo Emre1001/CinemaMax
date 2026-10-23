@@ -52,6 +52,15 @@ class EpgStore extends ChangeNotifier {
     return of(s, id).where((p) => p.start.isAfter(n)).firstOrNull;
   }
 
+  /// Andere EPG-Adresse eingetragen: alten Programmführer (Speicher und Datei) verwerfen.
+  Future<void> forget(Source s) async {
+    _data.remove(s.id);
+    errors.remove(s.id);
+    final f = File('${(await getApplicationSupportDirectory()).path}/epg_${s.id}.json');
+    if (await f.exists()) await f.delete();
+    notifyListeners();
+  }
+
   Future<void> ensure(Source s, Library lib, {bool force = false}) {
     if (lib.epgUrl == null) return Future.value();
     if (!force && _data.containsKey(s.id)) return Future.value();
@@ -78,7 +87,7 @@ class EpgStore extends ChangeNotifier {
     if (keep.isEmpty) return;
     final tmp = File('${dir.path}/epg_${s.id}.download');
     try {
-      final client = http.Client();
+      final client = Repo.iptvClient();
       try {
         // Kodi-Header am EPG-Link erlaubt; Server, die nie antworten, blockieren sonst den Programmführer
         final (url, headers) = Engine.splitHeaders(lib.epgUrl!, Repo.headers);

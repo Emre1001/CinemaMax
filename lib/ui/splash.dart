@@ -96,7 +96,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               final tri = SizedBox(
                 width: unit * .82,
                 height: unit,
-                child: CustomPaint(painter: PlayTriangle(Colors.white)),
+                child: CustomPaint(painter: PlayTriangle(fg)),
               );
 
               return Opacity(
@@ -153,7 +153,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                                         fontWeight: FontWeight.w800,
                                         height: 1,
                                         letterSpacing: -2 + (1 - reveal) * 10,
-                                        color: Colors.white,
+                                        color: fg,
                                       ),
                                     ),
                                   ),

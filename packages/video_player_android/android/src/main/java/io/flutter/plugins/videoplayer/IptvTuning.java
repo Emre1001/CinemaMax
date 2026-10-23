@@ -1,8 +1,18 @@
 package io.flutter.plugins.videoplayer;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Point;
 import androidx.annotation.NonNull;
+import java.security.KeyStore;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 import androidx.annotation.OptIn;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -29,9 +39,62 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory;
 public final class IptvTuning {
   private IptvTuning() {}
 
+  private static boolean lenientTls;
+
+  /**
+   * IPTV-Server haben oft abgelaufene oder selbst signierte Zertifikate: erst normal prüfen, schlägt das fehl,
+   * trotzdem verbinden (wie mpv und VLC; Playlisten lädt die App genauso). Gilt für HttpURLConnection, also
+   * die Streams von ExoPlayer; App-eigene Verbindungen (Updates) laufen über Dart und prüfen weiter streng.
+   */
+  @SuppressLint({"CustomX509TrustManager", "TrustAllX509TrustManager", "BadHostnameVerifier"})
+  static synchronized void allowInvalidCertificates() {
+    if (lenientTls) return;
+    lenientTls = true;
+    try {
+      TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+      tmf.init((KeyStore) null);
+      X509TrustManager system = null;
+      for (TrustManager t : tmf.getTrustManagers()) {
+        if (t instanceof X509TrustManager) system = (X509TrustManager) t;
+      }
+      if (system == null) return;
+      final X509TrustManager sys = system;
+      X509TrustManager lenient =
+          new X509TrustManager() {
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+              sys.checkClientTrusted(chain, authType);
+            }
+
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType) {
+              try {
+                sys.checkServerTrusted(chain, authType);
+              } catch (CertificateException ignored) {
+                // ungültiges Zertifikat: trotzdem verbinden
+              }
+            }
+
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+              return sys.getAcceptedIssuers();
+            }
+          };
+      SSLContext ctx = SSLContext.getInstance("TLS");
+      ctx.init(null, new TrustManager[] {lenient}, null);
+      HttpsURLConnection.setDefaultSSLSocketFactory(ctx.getSocketFactory());
+      // Zertifikat für einen anderen Namen (IP-Adresse, Ersatz-Domain): ebenfalls annehmen
+      HostnameVerifier any = (host, session) -> true;
+      HttpsURLConnection.setDefaultHostnameVerifier(any);
+    } catch (Exception ignored) {
+      // dann bleibt die normale Prüfung
+    }
+  }
+
   /** Player mit Software-Decoder als Rückfall und schnellem Start-Puffer. */
   @NonNull
   public static ExoPlayer.Builder builder(@NonNull Context context) {
+    allowInvalidCertificates();
     // FFmpeg-Tondecoder (Einstellung „ffmpegAudio“): on = nur wenn das Gerät das Format nicht kann
     String ffmpeg = setting(context, "ffmpegAudio", "on");
     int extensions =

@@ -74,8 +74,10 @@ class _Act {
 
 // Getter: die erkannte Bildschirmauflösung steht in der aktuellen Sprache im Text
 List<_Cat> get _cats => [
-  _Cat('Darstellung', 'Sprache, Farbe, Oberfläche', Icons.palette_outlined, [
+  _Cat('Darstellung', 'Sprache, Hell/Dunkel, Farbe, Oberfläche', Icons.palette_outlined, [
     _Opt('lang', 'Sprache', 'system', options: Map<Object, String>.from(languages)),
+    const _Opt('theme', 'Erscheinungsbild', 'system',
+        hint: 'Hell, dunkel oder wie das Gerät', options: {'system': 'Wie das Gerät', 'dark': 'Dunkel', 'light': 'Hell'}),
     const _Opt('accent', 'Akzentfarbe', Store.defaultAccent,
         hint: 'Farbe der ganzen Oberfläche', options: {...accentColors, -1: 'Eigene Farbe …'}),
     const _Opt('layout', 'Oberfläche', 'auto',
@@ -292,7 +294,7 @@ class _SettingsBodyState extends State<SettingsBody> {
                 child: FocusTraversalGroup(child: _catList(context, narrow: false)),
               ),
             ),
-            const VerticalDivider(width: 1, color: Colors.white10),
+            VerticalDivider(width: 1, color: ink(.1)),
             Expanded(
               child: Focus(
                 canRequestFocus: false,
@@ -324,7 +326,7 @@ class _SettingsBodyState extends State<SettingsBody> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
-                    color: !narrow && _sel == i ? Colors.white.withValues(alpha: .07) : null,
+                    color: !narrow && _sel == i ? ink(.07) : null,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(children: [
@@ -343,16 +345,16 @@ class _SettingsBodyState extends State<SettingsBody> {
                         Text(tr(c.summary),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: textDim, fontSize: 12.5)),
+                            style: TextStyle(color: textDim, fontSize: 12.5)),
                       ]),
                     ),
-                    if (narrow) const Icon(Icons.chevron_right_rounded, color: textDim),
+                    if (narrow) Icon(Icons.chevron_right_rounded, color: textDim),
                   ]),
                 ),
               ),
             ),
           const SizedBox(height: 20),
-          Text('CinemaMax $appVersion', textAlign: TextAlign.center, style: const TextStyle(color: textDim, fontSize: 12)),
+          Text('CinemaMax $appVersion', textAlign: TextAlign.center, style: TextStyle(color: textDim, fontSize: 12)),
         ],
       );
 }
@@ -465,7 +467,11 @@ Future<void> _change(BuildContext c, _Opt o) async {
     if (col != null) store.set('accent', col.toARGB32());
     return;
   }
-  if (v != null) store.set(o.key, v);
+  if (v != null && v != cur) {
+    store.set(o.key, v);
+    // Xtream-Senderlinks enthalten das Format (.ts/.m3u8) und liegen im Listen-Cache: neu laden lassen
+    if (o.key == 'liveFormat') await Repo.clearCache();
+  }
 }
 
 Future<void> _action(BuildContext c, String what) async {
@@ -540,7 +546,7 @@ Widget _row(BuildContext c, String label, String? hint,
                 Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                 if (hint != null) ...[
                   const SizedBox(height: 2),
-                  Text(hint, style: const TextStyle(color: textDim, fontSize: 12.5)),
+                  Text(hint, style: TextStyle(color: textDim, fontSize: 12.5)),
                 ],
               ]),
             ),
@@ -548,7 +554,7 @@ Widget _row(BuildContext c, String label, String? hint,
               Container(width: 14, height: 14, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
               const SizedBox(width: 10),
             ],
-            if (value != null) Text(value, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            if (value != null) Text(value, style: TextStyle(color: ink(.7), fontSize: 14)),
             if (toggle != null)
               ExcludeFocus(child: IgnorePointer(child: Switch(value: toggle, onChanged: (_) {}))),
           ]),

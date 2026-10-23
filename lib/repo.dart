@@ -20,6 +20,10 @@ class Repo {
 
   static Map<String, String> get headers => {'User-Agent': store.userAgent};
 
+  /// Client für IPTV-Server (Streams, Downloads, EPG): ungültige Zertifikate (abgelaufen, selbst signiert)
+  /// trotzdem annehmen, wie mpv/VLC. Der Rückruf kommt nur für Zertifikate, die die Prüfung nicht bestehen.
+  static http.Client iptvClient() => IOClient(HttpClient()..badCertificateCallback = (_, _, _) => true);
+
   static Future<String> _get(String url) async {
     // Playlist als Datei (über „Öffnen mit“ übernommen oder lokal eingetragen)
     final file = localPath(url);

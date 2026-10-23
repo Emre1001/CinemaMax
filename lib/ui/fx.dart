@@ -36,6 +36,7 @@ class _BackdropState extends State<Backdrop> with SingleTickerProviderStateMixin
   late final _c = AnimationController(vsync: this, duration: const Duration(seconds: 30));
   ui.Image? _img;
   Color? _imgColor;
+  bool? _imgLight;
 
   bool get _run => widget.moving && fxRich;
 
@@ -122,12 +123,13 @@ class _BackdropState extends State<Backdrop> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     // Speed-Modus: schlichter Hintergrund
-    if (Perf.speed) return const ColoredBox(color: bg);
+    if (Perf.speed) return ColoredBox(color: bg);
     final accent = Theme.of(context).colorScheme.primary;
-    if (_img == null || _imgColor != accent) {
+    if (_img == null || _imgColor != accent || _imgLight != isLight) {
       _img?.dispose();
       _img = _render(accent);
       _imgColor = accent;
+      _imgLight = isLight;
     }
     final img = _img!;
     return RepaintBoundary(
@@ -175,7 +177,7 @@ class _BackdropPainter extends CustomPainter {
     for (final (i, d) in _dots.indexed) {
       final y = (d.y - t.value * d.v * 1.4) % 1.0;
       final tw = math.pow(math.sin(a * 6 * d.v + i), 2).toDouble();
-      p.color = Colors.white.withValues(alpha: .05 + .2 * tw);
+      p.color = ink(.05 + .2 * tw);
       canvas.drawCircle(Offset(d.x * s.width, y * s.height), 1.1 * d.s, p);
     }
   }
@@ -242,10 +244,12 @@ class GlowButton extends StatelessWidget {
   final IconData? icon;
   final bool primary, autofocus, big, leading;
   final VoidCallback onTap;
+  final FocusNode? focusNode;
   const GlowButton({
     super.key,
     required this.label,
     required this.onTap,
+    this.focusNode,
     this.icon,
     this.primary = false,
     this.autofocus = false,
@@ -256,10 +260,11 @@ class GlowButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
-    final fg = primary ? store.onAccent : Colors.white;
+    final fg = primary ? store.onAccent : ink(1);
     final i = icon == null ? null : Icon(icon, size: big ? 22 : 19, color: fg);
     return Tap(
       autofocus: autofocus,
+      focusNode: focusNode,
       onTap: onTap,
       radius: 14,
       scale: 1.06,
@@ -267,8 +272,8 @@ class GlowButton extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: big ? 32 : 20, vertical: big ? 18 : 13),
         decoration: BoxDecoration(
           gradient: primary && !Perf.speed ? LinearGradient(colors: [accent, Color.lerp(accent, Colors.white, .22)!]) : null,
-          color: primary ? (Perf.speed ? accent : null) : Colors.white.withValues(alpha: .07),
-          border: primary ? null : Border.all(color: Colors.white12),
+          color: primary ? (Perf.speed ? accent : null) : ink(.07),
+          border: primary ? null : Border.all(color: ink(.12)),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -366,7 +371,7 @@ class _ShimmerState extends State<Shimmer> with SingleTickerProviderStateMixin {
         shaderCallback: (r) => LinearGradient(
           begin: Alignment(-1 + 4 * _c.value - 1.5, 0),
           end: Alignment(1 + 4 * _c.value - 1.5, 0),
-          colors: [Colors.white, Color.lerp(accent, Colors.white, .25)!, Colors.white],
+          colors: [fg, Color.lerp(accent, fg, .25)!, fg],
           stops: const [.2, .5, .8],
         ).createShader(r),
         child: child,
@@ -386,17 +391,17 @@ class FxPageTransitions extends PageTransitionsBuilder {
   Widget buildTransitions<T>(PageRoute<T> route, BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation, Widget child) {
     if (store.reduceMotion) return child;
-    final a = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
-    final out = CurvedAnimation(parent: secondaryAnimation, curve: Curves.easeOutCubic);
+    // Fade-Through: die alte Seite ist im ersten Drittel weg, erst danach kommt die neue.
+    // Seiten sind durchsichtig (gemeinsamer Hintergrund): so sieht man nie beide übereinander.
+    const inPart = Interval(.3, 1, curve: Curves.easeOutCubic), outPart = Interval(0, .3, curve: Curves.easeIn);
+    // Gleiche Kurve auch beim Zurück: oben liegende Seite geht zuerst, die darunter kommt danach
+    final shown = CurvedAnimation(parent: animation, curve: inPart);
+    final hidden = CurvedAnimation(parent: secondaryAnimation, curve: outPart);
     return FadeTransition(
-      opacity: a,
-      child: SlideTransition(
-        position: Tween(begin: const Offset(.06, 0), end: Offset.zero).animate(a),
-        // Darunterliegende Seite weicht etwas zurück und blendet aus
-        child: FadeTransition(
-          opacity: Tween(begin: 1.0, end: 0.0).animate(out),
-          child: SlideTransition(position: Tween(begin: Offset.zero, end: const Offset(-.04, 0)).animate(out), child: child),
-        ),
+      opacity: Tween(begin: 1.0, end: 0.0).animate(hidden),
+      child: FadeTransition(
+        opacity: shown,
+        child: Perf.lite ? child : ScaleTransition(scale: Tween(begin: .97, end: 1.0).animate(shown), child: child),
       ),
     );
   }
