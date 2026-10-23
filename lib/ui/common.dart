@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show PlatformDispatcher;
 
@@ -205,7 +206,7 @@ class _TapState extends State<Tap> {
 }
 
 // ---------------- Bild mit Platzhalter ----------------
-class Artwork extends StatelessWidget {
+class Artwork extends StatefulWidget {
   final String? url;
   final String label;
   final BoxFit fit;
@@ -214,7 +215,47 @@ class Artwork extends StatelessWidget {
   const Artwork(this.url, this.label, {super.key, this.fit = BoxFit.cover, this.width = 200});
 
   @override
+  State<Artwork> createState() => _ArtworkState();
+}
+
+class _ArtworkState extends State<Artwork> {
+  // Logo-Server brechen ab, wenn eine Liste Dutzende Bilder gleichzeitig anfragt: zweimal neu versuchen,
+  // beim letzten Mal ohne Player-Kennung (manche Bild-Server sperren den VLC-User-Agent)
+  int _try = 0;
+  Timer? _retry;
+
+  @override
+  void didUpdateWidget(Artwork old) {
+    super.didUpdateWidget(old);
+    if (old.url != widget.url) {
+      _retry?.cancel();
+      _retry = null;
+      _try = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _retry?.cancel();
+    super.dispose();
+  }
+
+  void _failed(ImageProvider p, Object e) {
+    if (_try >= 2 || _retry != null) return;
+    debugPrint('Bild nicht geladen (${_try + 1}. Versuch): ${widget.url}: $e');
+    _retry = Timer(Duration(seconds: _try == 0 ? 2 : 5), () async {
+      await p.evict(); // Fehlschlag nicht aus dem Bild-Cache wiederholen
+      if (!mounted) return;
+      setState(() {
+        _try++;
+        _retry = null;
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final Artwork(:url, :fit, :width) = widget;
     // Ohne Bild: ruhiges Symbol statt Buchstaben-Kürzel (Name steht ohnehin unter der Kachel)
     final placeholder = Container(
       color: surface2,
@@ -223,16 +264,23 @@ class Artwork extends StatelessWidget {
           color: ink(.24), size: fit == BoxFit.contain ? 30 : 38),
     );
     if (url == null || !store.get('showLogos', true)) return placeholder;
-    final img = Image.network(
-      url!,
-      fit: fit,
-      // Manche Logo-Server liefern nur an bekannte Player aus
-      headers: {'User-Agent': store.userAgent},
+    final provider = ResizeImage.resizeIfNeeded(
       // Bild auf Anzeigegröße dekodieren: spart RAM, scrollt flüssig auf TV-Boxen
-      cacheWidth: (width * MediaQuery.devicePixelRatioOf(context)).round(),
+      (width * MediaQuery.devicePixelRatioOf(context)).round(),
+      null,
+      // Manche Logo-Server liefern nur an bekannte Player aus
+      NetworkImage(url, headers: _try < 2 ? {'User-Agent': store.userAgent} : null),
+    );
+    final img = Image(
+      key: ValueKey(_try), // neuer Versuch: Bild neu anfordern
+      image: provider,
+      fit: fit,
       filterQuality: FilterQuality.medium,
       gaplessPlayback: true,
-      errorBuilder: (_, _, _) => placeholder,
+      errorBuilder: (_, e, _) {
+        _failed(provider, e);
+        return placeholder;
+      },
       frameBuilder: (_, child, frame, sync) => sync || store.reduceMotion
           ? child
           : AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 220), child: child),

@@ -26,6 +26,12 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 
 ---
 
+## 🛠️ Fehlerfixes in 1.7.1
+
+- **Logos und Poster** laden wieder zuverlässiger: bei Fehlern zwei neue Versuche, der letzte ohne Player-Kennung (manche Bild-Server sperren sie)
+- **Weniger Speicher**: die heruntergeladene Update-APK wird nach dem Update gelöscht
+- **Weiterschauen**: eine Serie erscheint nur einmal, mit der zuletzt gesehenen Folge, statt jeder Folge einzeln
+
 ## 🆕 Neu in 1.7.0
 
 - **Einrichtung beim ersten Start**: Sprache, Aussehen, Leistung, Bildschirm und ein **Geräte-Check**, der zeigt, welche Formate dein Gerät abspielt (H.265, AV1, Dolby Digital, DTS, 4K, HDR)

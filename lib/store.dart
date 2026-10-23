@@ -130,10 +130,16 @@ class Store extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Zuletzt gesehen (neueste zuerst) für eine Quelle.
-  List<MapEntry<String, Map<String, dynamic>>> recent(Source s) =>
-      history.entries.where((e) => e.value['src'] == s.id).toList()
-        ..sort((a, b) => (b.value['ts'] as int).compareTo(a.value['ts'] as int));
+  /// Zuletzt gesehen (neueste zuerst) für eine Quelle. Serien nur einmal: mit der zuletzt gesehenen Folge.
+  List<MapEntry<String, Map<String, dynamic>>> recent(Source s) {
+    final l = history.entries.where((e) => e.value['src'] == s.id).toList()
+      ..sort((a, b) => (b.value['ts'] as int).compareTo(a.value['ts'] as int));
+    final series = <dynamic>{};
+    return [
+      for (final e in l)
+        if (e.value['item']['kind'] != Kind.series.index || series.add(e.value['item']['id'])) e,
+    ];
+  }
 
   void clearHistory() {
     history.clear();

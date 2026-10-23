@@ -16,6 +16,7 @@ import 'ui/fx.dart';
 import 'ui/setup.dart';
 import 'ui/splash.dart';
 import 'i18n.dart';
+import 'update.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +48,7 @@ Future<void> main(List<String> args) async {
   }
   await store.init();
   isLight = resolveLight();
+  await deleteUpdateFiles();
   await Perf.init();
   await downloads.init();
   await Links.init(args);
