@@ -14,8 +14,19 @@ import 'store.dart';
 import 'ui/common.dart';
 
 /// Installierte Version. Muss zu `version:` in pubspec.yaml passen (test/update_test.dart prüft das).
-const appVersion = '1.7.0';
+const appVersion = '1.7.1';
 const _repo = 'Emre1001/CinemaMax';
+
+/// Beim Start: geladene Update-APKs löschen. Nach der Installation braucht sie niemand mehr,
+/// sonst belegen sie mit jedem Update mehr Speicher.
+Future<void> deleteUpdateFiles() async {
+  if (!Platform.isAndroid) return;
+  try {
+    await Directory('${(await getTemporaryDirectory()).path}/updates').delete(recursive: true);
+  } catch (_) {
+    /* nichts da */
+  }
+}
 
 typedef Release = ({String version, String page, String? asset});
 
