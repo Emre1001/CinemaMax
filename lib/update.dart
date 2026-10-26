@@ -14,7 +14,7 @@ import 'store.dart';
 import 'ui/common.dart';
 
 /// Installierte Version. Muss zu `version:` in pubspec.yaml passen (test/update_test.dart prüft das).
-const appVersion = '1.7.1';
+const appVersion = '1.7.2';
 const _repo = 'Emre1001/CinemaMax';
 
 /// Beim Start: geladene Update-APKs und Windows-Setups löschen. Nach der Installation braucht sie niemand mehr,

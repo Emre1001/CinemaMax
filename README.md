@@ -26,6 +26,13 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 
 ---
 
+## 🛠️ Neu in 1.7.2
+
+- **Schlichteres Aussehen**: keine bewegten Farbwolken, Lichtpunkte, Glanzstreifen und Verläufe mehr. Die Leistungsmodi unterscheiden sich nur noch in den Animationen
+- **Handy**: nichts liegt mehr unter Kamera-Loch, Statusleiste oder Gestenleiste, auch im Querformat; Zurück-Geste mit Vorschau (Android 13+)
+- **An Fernseher senden** (Webseite): die Anzeige springt nicht mehr auf „Keine Antwort“, wenn der Fernseher sehr schnell antwortet; Felder bleiben bei offener Tastatur sichtbar
+- **Windows**: das heruntergeladene Update-Setup wird beim nächsten Start gelöscht
+
 ## 🛠️ Fehlerfixes in 1.7.1
 
 - **Logos und Poster** laden wieder zuverlässiger: bei Fehlern zwei neue Versuche, der letzte ohne Player-Kennung (manche Bild-Server sperren sie)
