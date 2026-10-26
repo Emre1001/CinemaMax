@@ -226,7 +226,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
             const SizedBox(width: 8),
           ],
         ),
-        body: _content(_tab),
+        body: SafeArea(top: false, child: _content(_tab)),
         bottomNavigationBar: NavigationBar(
           backgroundColor: surface,
           indicatorColor: store.accent.withValues(alpha: .22),
@@ -264,7 +264,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
         if (!didPop) _navNodes[_tab]!.requestFocus();
       },
       child: Scaffold(
-        body: Row(children: [
+        // Tablet / Handy quer: Leiste und Inhalt frei von Statusleiste und Kamera-Ausschnitt
+        body: SafeArea(child: Row(children: [
           Focus(
             focusNode: _navFocus,
             onFocusChange: (v) {
@@ -328,7 +329,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
               Expanded(child: FocusTraversalGroup(child: _content(_tab))),
             ]),
           ),
-        ]),
+        ])),
       ),
     );
   }
@@ -580,6 +581,7 @@ class _ContentViewState extends State<ContentView> {
     final g = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: surface,
       showDragHandle: true,
       builder: (c) => _CategoryPicker(cats: cats, selected: _sel, label: _label, icon: _icon, count: _count),

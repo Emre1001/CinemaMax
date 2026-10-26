@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>An Fernseher senden · CinemaMax</title>
   <meta name="description" content="Xtream-Codes-, M3U- oder Stalker-Zugang verschlüsselt an einen Fernseher mit CinemaMax senden, von überall.">
   <meta name="robots" content="noindex">
@@ -18,15 +18,16 @@
       color-scheme: dark;
     }
     @media (prefers-color-scheme: light) {
-      :root { --bg: #F5F5F7; --surface: #fff; --surface2: #ECECF0; --line: #DEDEE4; --text: #0B0B0D; --dim: #62626B; --ok: #12A150; --err: #D92D3A; color-scheme: light; }
+      :root { --bg: #F4F4F7; --surface: #fff; --surface2: #E9E9EF; --line: #D9D9E0; --text: #111114; --dim: #66666F; --ok: #12A150; --err: #D92D3A; color-scheme: light; }
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; background: var(--bg); color: var(--text); }
     body { font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
-    main { max-width: 520px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) 16px 40px; }
+    main { max-width: 520px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+    input, label { scroll-margin-block: 24px 40vh; }
     header { display: flex; align-items: center; gap: 10px; margin: 6px 0 26px; }
     header img { width: 30px; height: 30px; }
-    header a { color: inherit; text-decoration: none; font-weight: 800; letter-spacing: -.3px; }
+    header a { display: inline-flex; align-items: center; min-height: 44px; color: inherit; text-decoration: none; font-weight: 800; letter-spacing: -.3px; }
     h1 { font-size: 30px; line-height: 1.15; letter-spacing: -.8px; margin: 0 0 8px; }
     .lead { color: var(--dim); margin: 0 0 24px; }
     .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
@@ -41,10 +42,13 @@
     .hint.err { color: var(--err); }
     .msg { margin: 0 0 12px; }
     .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: var(--surface2); padding: 4px; border-radius: 12px; }
-    .seg button { font: 600 14px system-ui, sans-serif; color: var(--dim); background: none; border: 0; border-radius: 9px; padding: 10px 4px; cursor: pointer; }
+    .seg button { font: 600 14px system-ui, sans-serif; color: var(--dim); background: none; border: 0; border-radius: 9px; min-height: 44px; padding: 10px 4px; cursor: pointer; }
     .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.25); }
-    .pw { position: relative; }
-    .pw button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; color: var(--dim); font: 600 13px system-ui; padding: 8px; cursor: pointer; }
+    /* Feld und „Zeigen“ nebeneinander in einem Rahmen: der Knopf liegt nie über dem Text */
+    .pw { display: flex; align-items: center; background: var(--surface2); border: 2px solid transparent; border-radius: 12px; transition: border-color .15s; }
+    .pw:focus-within { border-color: var(--accent); }
+    .pw input { flex: 1; min-width: 0; border: 0; background: none; }
+    .pw button { flex: none; min-height: 44px; background: none; border: 0; color: var(--dim); font: 600 13px system-ui; padding: 0 14px; cursor: pointer; }
     .send { width: 100%; font: 700 17px system-ui, sans-serif; color: #fff; background: var(--accent); border: 0; border-radius: 14px; padding: 15px; cursor: pointer; transition: transform .1s, opacity .15s; }
     .send:active { transform: scale(.98); }
     .send:disabled { opacity: .5; cursor: default; }
@@ -60,7 +64,7 @@
     .note { display: flex; gap: 8px; font-size: 13px; color: var(--dim); margin-top: 18px; }
     .hidden { display: none; }
     footer { text-align: center; font-size: 13px; color: var(--dim); margin-top: 28px; }
-    footer a { color: var(--dim); }
+    footer a { display: inline-flex; align-items: center; min-height: 44px; color: var(--dim); }
   </style>
 </head>
 <body>
@@ -234,7 +238,7 @@
     say('');
 
     $('send').disabled = true;
-    finished = false;
+    finished = false; replied = false;
     stop?.(); clearTimeout(timer); resetSteps();
     progress('', null);
     try {
@@ -244,6 +248,7 @@
       stop = l.listen((m) => {
         if (m.k !== 'status') return;
         // Reihenfolge beim Relay nicht garantiert: nie zurückspringen
+        replied = true;
         if (m.state === 'received') { if (!finished) progress('received', null); }
         else if (m.state === 'ok') { progress('ok', null); finish(); }
         else { progress('received', t('tvSays') + (m.text || '')); finish(); }
@@ -253,20 +258,20 @@
         user: type === 'xtream' ? $('user').value.trim() : '', pass: type === 'xtream' ? $('pass').value : '',
         mac: type === 'stalker' ? mac : '',
       });
-      progress('sent', null);
-      timer = setTimeout(() => {
-        if (!document.querySelector('#status li[data-s="received"]').classList.contains('done')) {
-          progress('sent', t('noAnswer'));
-          finish();
-        }
-      }, 40000);
+      // Fernseher kann schon vor dem Ende von send geantwortet haben: dann nicht zurückspringen
+      if (!replied) {
+        progress('sent', null);
+        timer = setTimeout(() => {
+          if (!replied) { progress('sent', t('noAnswer')); finish(); }
+        }, 40000);
+      }
     } catch (err) {
       progress('', String(err.message || err));
       finish();
     }
   });
-  let finished = false;
-  function finish() { finished = true; clearTimeout(timer); $('send').disabled = false; }
+  let finished = false, replied = false;
+  function finish() { finished = true; clearTimeout(timer); stop?.(); stop = null; $('send').disabled = false; }
 </script>
 </body>
 </html>

@@ -6,6 +6,7 @@
     <!-- Android TV: kein Touchscreen nötig, Leanback optional (Handy + TV in einer APK) -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
     <uses-feature android:name="android.software.leanback" android:required="false"/>
+    <!-- Zurück-Geste mit Vorschau (Android 13+): Flutter bekommt die Geste über OnBackInvokedCallback -->
     <application
         android:label="CinemaMax"
         android:banner="@drawable/banner"
@@ -13,7 +14,8 @@
         android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
             android:supportsPictureInPicture="true"

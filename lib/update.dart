@@ -14,8 +14,23 @@ import 'store.dart';
 import 'ui/common.dart';
 
 /// Installierte Version. Muss zu `version:` in pubspec.yaml passen (test/update_test.dart prüft das).
-const appVersion = '1.7.0';
+const appVersion = '1.7.2';
 const _repo = 'Emre1001/CinemaMax';
+
+/// Beim Start: geladene Update-APKs und Windows-Setups löschen. Nach der Installation braucht sie niemand mehr,
+/// sonst belegen sie mit jedem Update mehr Speicher.
+Future<void> deleteUpdateFiles() async {
+  if (Platform.isLinux) return; // AppImage wird ersetzt, es bleibt nichts liegen
+  try {
+    await Directory(await _updateDir()).delete(recursive: true);
+  } catch (_) {
+    /* nichts da */
+  }
+}
+
+/// Ordner für geladene Updates. Windows teilt den Temp-Ordner mit anderen Programmen: eigener Name.
+Future<String> _updateDir() async =>
+    '${(await getTemporaryDirectory()).path}/${Platform.isAndroid ? 'updates' : 'CinemaMax-updates'}';
 
 typedef Release = ({String version, String page, String? asset});
 
@@ -112,9 +127,9 @@ Future<void> _install(BuildContext c, Release rel) async {
   final appImage = Platform.environment['APPIMAGE'];
   final File target;
   if (Platform.isAndroid) {
-    target = File('${(await getTemporaryDirectory()).path}/updates/CinemaMax-${rel.version}.apk');
+    target = File('${await _updateDir()}/CinemaMax-${rel.version}.apk');
   } else if (Platform.isWindows) {
-    target = File('${(await getTemporaryDirectory()).path}/CinemaMax-${rel.version}-setup.exe');
+    target = File('${await _updateDir()}/CinemaMax-${rel.version}-setup.exe');
   } else {
     target = File('$appImage.new');
   }

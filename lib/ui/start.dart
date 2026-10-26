@@ -220,8 +220,6 @@ class _StartScreenState extends State<StartScreen> {
     // Handy quer: weniger Höhe als Inhalt, dann scrollen; sonst verteilen die Spacer den Platz wie bisher
     return Scaffold(
       body: Stack(children: [
-       // Startseite: ziehende Farbwolken wie in der Einrichtung (nur bei voller Leistung)
-       const Positioned.fill(child: Backdrop()),
        SafeArea(
         child: LayoutBuilder(
           builder: (_, box) => SingleChildScrollView(
@@ -324,13 +322,7 @@ class _ModeCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(26),
           decoration: BoxDecoration(
-            // Leichter Akzentschimmer oben links, wie die Karten der Einrichtung
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [store.accent.withValues(alpha: .16), surface.withValues(alpha: .78)],
-              stops: const [0, .6],
-            ),
+            color: surface.withValues(alpha: .78),
             border: Border.all(color: line),
             borderRadius: BorderRadius.circular(18),
           ),
@@ -446,7 +438,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
       appBar: AppBar(
         title: Text(widget.iptv ? tr('IPTV-Liste wählen') : tr('Server wählen'), style: const TextStyle(fontWeight: FontWeight.w700)),
       ),
-      body: ListView(
+      // Handy quer / Gestenleiste: Liste bleibt frei von Kamera-Ausschnitt und Leisten
+      body: SafeArea(top: false, child: ListView(
         padding: EdgeInsets.symmetric(horizontal: wide ? 48 : 16, vertical: 8),
         children: [
           for (final (i, s) in list.indexed)
@@ -484,7 +477,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
                   style: TextStyle(color: textDim)),
             ),
         ],
-      ),
+      )),
     );
   }
 }
@@ -752,7 +745,7 @@ class _SourceEditorState extends State<SourceEditor> {
     final what = widget.iptv ? tr('IPTV-Liste') : tr('Server');
     return Scaffold(
       appBar: AppBar(title: Text(widget.source == null ? tr('{0} hinzufügen', [what]) : tr('{0} bearbeiten', [what]))),
-      body: Center(
+      body: SafeArea(top: false, child: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: 560),
           child: ListView(padding: EdgeInsets.all(20), children: [
@@ -804,7 +797,7 @@ class _SourceEditorState extends State<SourceEditor> {
             ),
           ]),
         ),
-      ),
+      )),
     );
   }
 }

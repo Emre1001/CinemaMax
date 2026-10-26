@@ -90,8 +90,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               final fire = _p(.30, .42, Curves.easeInCubic); // Dreieck fährt los
               final reveal = _p(.33, .64, Curves.easeOutQuart); // Schriftzug öffnet sich
               final out = _p(.86, 1, Curves.easeInCubic); // Ausblenden
-              final impact = _p(.21, .55, Curves.easeOut); // Lichtschein nach dem Schlag
-              final glow = (1 - impact) * (impact > 0 ? 1 : 0);
 
               final tri = SizedBox(
                 width: unit * .82,
@@ -106,22 +104,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Kurzer, weicher Lichtschein in der Akzentfarbe beim Bass-Schlag
-                      IgnorePointer(
-                        child: Container(
-                          width: unit * 7,
-                          height: unit * 7,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: RadialGradient(
-                              colors: [
-                                accent.withValues(alpha: .22 * glow),
-                                accent.withValues(alpha: 0),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.center,
