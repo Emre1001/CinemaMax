@@ -7,8 +7,8 @@ import 'package:flutter/services.dart';
 
 import 'store.dart';
 
-/// Leistungsmodus. „full“: alle Effekte. „lite“ (schwaches Gerät): ruhiger Hintergrund, keine Glanz-/Lichteffekte,
-/// kürzere Übergänge. „speed“: keine Animationen, kein Hintergrund, keine Effekte.
+/// Leistungsmodus für Animationen (das Aussehen ist überall gleich schlicht). „full“: alle Übergänge.
+/// „lite“ (schwaches Gerät): kürzere, einfachere Übergänge, keine Dauer-Animationen. „speed“: keine Animationen.
 /// „auto“ entscheidet nach Gerät (Android: wenig RAM oder Kerne) und gemessenen Bildzeiten.
 class Perf {
   static bool _weakDevice = false, _veryWeakDevice = false;
@@ -37,7 +37,7 @@ class Perf {
           ? 'speed'
           : (detectedWeak ? 'lite' : 'full');
 
-  /// Weniger Effekte (auch im Speed-Modus).
+  /// Weniger Animationen (auch im Speed-Modus).
   static bool get lite => effective != 'full';
 
   /// Ohne Animationen und Schnickschnack.

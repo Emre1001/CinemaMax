@@ -178,11 +178,11 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: messengerKey,
       theme: theme,
-      // Ruhender Farbwolken-Hintergrund unter allen Seiten (Speed-Modus: schlicht)
+      // Schlichter Hintergrund unter allen Seiten (Seiten selbst sind durchsichtig)
       // Statusleiste: dunkle Symbole auf hellem Hintergrund
       builder: (_, child) => AnnotatedRegion<SystemUiOverlayStyle>(
         value: isLight ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light,
-        child: Stack(children: [const Positioned.fill(child: Backdrop(moving: false)), ?child]),
+        child: ColoredBox(color: bg, child: child),
       ),
       scrollBehavior: const MaterialScrollBehavior().copyWith(
         dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},

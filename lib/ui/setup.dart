@@ -145,7 +145,6 @@ class _SetupScreenState extends State<SetupScreen> {
           child: Scaffold(
             backgroundColor: bg,
             body: Stack(children: [
-              Positioned.fill(child: Backdrop(page: _page.toDouble())),
               SafeArea(
                 child: Column(children: [
                   _TopBar(page: _page, count: _count, onSkip: _page < _count - 1 ? () => _finish() : null),
@@ -224,7 +223,6 @@ class _DeviceCheckScreenState extends State<DeviceCheckScreen> {
         appBar: AppBar(backgroundColor: Colors.transparent),
         extendBodyBehindAppBar: true,
         body: Stack(children: [
-          const Positioned.fill(child: Backdrop(page: 5)),
           SafeArea(child: Padding(padding: const EdgeInsets.only(top: 40), child: _CheckPage(device: _device))),
         ]),
       );
@@ -290,9 +288,7 @@ class _TopBar extends StatelessWidget {
                       alignment: Alignment.centerLeft,
                       widthFactor: i <= page ? 1 : 0,
                       child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [accent, Color.lerp(accent, Colors.white, .35)!]),
-                        ),
+                        decoration: BoxDecoration(color: accent),
                       ),
                     ),
                   ),
@@ -409,10 +405,8 @@ class _Welcome extends StatelessWidget {
         SizedBox(height: short ? 6 : 18),
         Rise(1, child: Text(tr('Willkommen bei'), style: TextStyle(color: textDim, fontSize: 18, fontWeight: FontWeight.w600))),
         Rise(2,
-            child: Shimmer(
-              child: Text('CinemaMax',
-                  style: TextStyle(fontSize: short ? 40 : (wide ? 64 : 46), fontWeight: FontWeight.w900, letterSpacing: -2.4, height: 1.1)),
-            )),
+            child: Text('CinemaMax',
+                style: TextStyle(fontSize: short ? 40 : (wide ? 64 : 46), fontWeight: FontWeight.w900, letterSpacing: -2.4, height: 1.1))),
         const SizedBox(height: 10),
         Rise(3,
             child: ConstrainedBox(
@@ -429,9 +423,7 @@ class _Welcome extends StatelessWidget {
         ]),
         SizedBox(height: short ? 18 : 34),
         Rise(9,
-            child: Shine(
-              child: GlowButton(label: tr("Los geht's"), icon: Icons.arrow_forward_rounded, primary: true, big: true, autofocus: true, onTap: onStart),
-            )),
+            child: GlowButton(label: tr("Los geht's"), icon: Icons.arrow_forward_rounded, primary: true, big: true, autofocus: true, onTap: onStart)),
         const SizedBox(height: 12),
         Rise(10, child: Text(tr('Dauert weniger als eine Minute'), style: TextStyle(color: textDim, fontSize: 12.5))),
       ]),
@@ -513,18 +505,6 @@ class _LogoHeroState extends State<_LogoHero> with TickerProviderStateMixin {
                   ),
                 );
               }(),
-            if (!Perf.speed)
-             Container(
-              width: u * 2.6,
-              height: u * 2.6,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [
-                  accent.withValues(alpha: (.38 * land).clamp(0.0, 1.0)),
-                  accent.withValues(alpha: 0),
-                ]),
-              ),
-            ),
             Row(mainAxisSize: MainAxisSize.min, children: [
               Transform.scale(
                 scaleY: bar,
@@ -767,7 +747,7 @@ class _LookPage extends StatelessWidget {
         height: wide ? 210 : 120,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: RadialGradient(colors: [accent.withValues(alpha: .35), accent.withValues(alpha: .04)]),
+          color: accent.withValues(alpha: .14),
           border: Border.all(color: accent.withValues(alpha: .5), width: 1.5),
         ),
         child: Icon(_deviceIcon(current), size: wide ? 96 : 56, color: fg),
@@ -865,13 +845,13 @@ class _PerfPage extends StatelessWidget {
         switch (Perf.effective) {
           'speed' => tr('Erkannt: sehr schwaches Gerät, Speed'),
           'lite' => tr('Erkannt: schwaches Gerät, Flüssig'),
-          _ => tr('Erkannt: starkes Gerät, alle Effekte'),
+          _ => tr('Erkannt: starkes Gerät, alle Animationen'),
         },
         Icons.auto_awesome_rounded,
       ),
-      ('full', tr('Alle Effekte'), tr('Bewegter Hintergrund, Glanz und Lichter'), Icons.auto_fix_high_rounded),
+      ('full', tr('Alle Animationen'), tr('Alle Übergänge und Bewegungen'), Icons.auto_fix_high_rounded),
       ('lite', tr('Flüssig'), tr('Für TV-Boxen und ältere Handys'), Icons.speed_rounded),
-      ('speed', tr('Speed'), tr('Ohne Animationen und Effekte'), Icons.bolt_rounded),
+      ('speed', tr('Speed'), tr('Ohne Animationen'), Icons.bolt_rounded),
     ];
     void choose(String k) => store.set('perf', k);
 
@@ -888,7 +868,7 @@ class _PerfPage extends StatelessWidget {
     ]);
     return _PageFrame(
       title: tr('Wie stark ist dein Gerät?'),
-      subtitle: tr('TV-Boxen und ältere Handys laufen mit weniger Effekten flüssig. Die Bedienung bleibt gleich.'),
+      subtitle: tr('TV-Boxen und ältere Handys laufen mit weniger Animationen flüssig. Die Bedienung bleibt gleich.'),
       child: wide
           ? Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
               Expanded(child: cards),
@@ -1459,11 +1439,7 @@ class _RingPainter extends CustomPainter {
       2 * math.pi * v,
       false,
       Paint()
-        ..shader = SweepGradient(
-          startAngle: -math.pi / 2,
-          endAngle: 3 * math.pi / 2,
-          colors: [Color.lerp(color, Colors.white, .35)!, color],
-        ).createShader(rect)
+        ..color = color
         ..style = PaintingStyle.stroke
         ..strokeWidth = 9
         ..strokeCap = StrokeCap.round,
@@ -1524,15 +1500,13 @@ class _DonePage extends StatelessWidget {
           Rise(
             8,
             child: Wrap(alignment: WrapAlignment.center, spacing: 14, runSpacing: 12, children: [
-              Shine(
-                child: GlowButton(
-                  label: tr('Freie Sender entdecken'),
-                  icon: Icons.satellite_alt_rounded,
-                  leading: true,
-                  primary: true,
-                  autofocus: true,
-                  onTap: () => onDone(const SourcesScreen(iptv: true)),
-                ),
+              GlowButton(
+                label: tr('Freie Sender entdecken'),
+                icon: Icons.satellite_alt_rounded,
+                leading: true,
+                primary: true,
+                autofocus: true,
+                onTap: () => onDone(const SourcesScreen(iptv: true)),
               ),
               GlowButton(label: tr('Eigenen Server hinzufügen'), icon: Icons.dns_rounded, leading: true, onTap: () => onDone(const SourcesScreen())),
               GlowButton(label: tr('Zum Start'), icon: Icons.home_rounded, leading: true, onTap: () => onDone()),
@@ -1576,8 +1550,7 @@ class _CheckBadgeState extends State<_CheckBadge> with SingleTickerProviderState
             height: 104,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(colors: [accent, Color.lerp(accent, Colors.white, .3)!]),
-              boxShadow: fxRich ? [BoxShadow(color: accent.withValues(alpha: .5), blurRadius: 28, spreadRadius: 2)] : null,
+              color: accent,
             ),
             child: CustomPaint(painter: _TickPainter(draw, store.onAccent)),
           ),

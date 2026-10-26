@@ -90,12 +90,12 @@ List<_Cat> get _cats => [
     const _Opt('showLogos', 'Logos und Poster laden', true, hint: 'Aus spart Datenvolumen'),
     const _Opt('clock', 'Uhr anzeigen', true),
     const _Opt('perf', 'Leistung', 'auto',
-        hint: 'Schwache Geräte laufen mit weniger Effekten flüssiger',
+        hint: 'Schwache Geräte laufen mit weniger Animationen flüssiger',
         options: {
           'auto': 'Automatisch',
-          'full': 'Alle Effekte',
+          'full': 'Alle Animationen',
           'lite': 'Flüssig (schwaches Gerät)',
-          'speed': 'Speed (ohne Animationen und Effekte)',
+          'speed': 'Speed (ohne Animationen)',
         }),
     const _Opt('reduceMotion', 'Animationen reduzieren', false, hint: 'Für langsame TV-Boxen'),
   ]),
@@ -243,7 +243,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(tr('Einstellungen'), style: TextStyle(fontWeight: FontWeight.w700))),
-        body: const SettingsBody(),
+        body: const SafeArea(top: false, child: SettingsBody()),
       );
 }
 
@@ -367,7 +367,9 @@ class _CatPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(tr(cat.title), style: const TextStyle(fontWeight: FontWeight.w700))),
-        body: ListenableBuilder(listenable: Listenable.merge([store, downloads]), builder: (context, _) => _CatBody(cat)),
+        body: SafeArea(
+            top: false,
+            child: ListenableBuilder(listenable: Listenable.merge([store, downloads]), builder: (context, _) => _CatBody(cat))),
       );
 }
 

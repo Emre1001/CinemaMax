@@ -102,7 +102,7 @@ class DownloadsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(tr('Downloads'), style: const TextStyle(fontWeight: FontWeight.w700))),
-        body: const DownloadsView(),
+        body: const SafeArea(top: false, child: DownloadsView()),
       );
 }
 

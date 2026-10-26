@@ -20,23 +20,23 @@
 /* Hell: nach System, außer der Nutzer hat selbst gewählt */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #F5F5F7;
+    --bg: #F4F4F7;
     --surface: #FFFFFF;
-    --surface2: #ECECF0;
-    --line: #DEDEE4;
-    --text: #0B0B0D;
-    --dim: #62626B;
+    --surface2: #E9E9EF;
+    --line: #D9D9E0;
+    --text: #111114;
+    --dim: #66666F;
     --shadow: 0 30px 80px -40px rgba(20, 20, 40, .35);
     color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --bg: #F5F5F7;
+  --bg: #F4F4F7;
   --surface: #FFFFFF;
-  --surface2: #ECECF0;
-  --line: #DEDEE4;
-  --text: #0B0B0D;
-  --dim: #62626B;
+  --surface2: #E9E9EF;
+  --line: #D9D9E0;
+  --text: #111114;
+  --dim: #66666F;
   --shadow: 0 30px 80px -40px rgba(20, 20, 40, .35);
   color-scheme: light;
 }
@@ -97,7 +97,9 @@ code, kbd, pre { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascad
 .nav {
   position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center; gap: 24px;
-  padding: 14px max(20px, calc((100vw - 1200px) / 2));
+  /* Handy: Platz für Statusleiste, Kamera-Loch und seitlichen Ausschnitt (quer) */
+  padding: calc(14px + env(safe-area-inset-top)) max(calc(20px + env(safe-area-inset-right)), calc((100vw - 1200px) / 2))
+    14px max(calc(20px + env(safe-area-inset-left)), calc((100vw - 1200px) / 2));
   background: color-mix(in srgb, var(--bg) 78%, transparent);
   backdrop-filter: saturate(1.6) blur(18px);
   -webkit-backdrop-filter: saturate(1.6) blur(18px);
@@ -109,7 +111,7 @@ code, kbd, pre { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascad
 .brand-bar { display: inline-block; width: 9px; height: 22px; border-radius: 3px; background: var(--accent); transition: background-color .4s; }
 .nav-links { display: flex; gap: 6px; margin-left: auto; }
 .nav-links a {
-  position: relative; padding: 8px 12px; border-radius: 10px; text-decoration: none; font-size: 15px; color: var(--dim);
+  position: relative; white-space: nowrap; padding: 8px 12px; border-radius: 10px; text-decoration: none; font-size: 15px; color: var(--dim);
   transition: color .2s, background-color .2s;
 }
 .nav-links a:hover, .nav-links a:focus-visible, .nav-links a.active { color: var(--text); }
@@ -119,6 +121,7 @@ code, kbd, pre { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascad
 }
 .nav-links a.active::after { transform: scaleX(1); }
 .nav-actions { display: flex; align-items: center; gap: 12px; }
+.nav > .brand, .nav-actions > * { min-height: 44px; }
 
 /* Hell/Dunkel-Schalter: Knopf rollt, Sonne wird zum Mond */
 .theme-switch { padding: 4px; border-radius: 100px; }
@@ -207,7 +210,7 @@ html:not(.ready) .hero .reveal { transition-delay: calc(1.6s + var(--d, 0s)); }
   position: relative; display: inline-flex; padding: 4px; margin-bottom: 26px; border-radius: 100px;
   background: var(--surface2); border: 1px solid var(--line);
 }
-.device-switch button { position: relative; z-index: 1; padding: 9px 18px; border-radius: 100px; font-weight: 600; font-size: 15px; color: var(--dim); transition: color .3s; }
+.device-switch button { position: relative; z-index: 1; min-height: 44px; padding: 9px 18px; border-radius: 100px; font-weight: 600; font-size: 15px; color: var(--dim); transition: color .3s; }
 .device-switch button[aria-selected="true"] { color: var(--on-accent); }
 .device-indicator {
   position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; border-radius: 100px; background: var(--accent);
@@ -413,7 +416,7 @@ kbd { display: inline-block; min-width: 1.8em; padding: .1em .45em; margin: 0 .1
 .stat:nth-child(2) { --d: .08s; } .stat:nth-child(3) { --d: .16s; } .stat:nth-child(4) { --d: .24s; }
 
 /* ---------- Abschnitte ---------- */
-.section { max-width: 1200px; margin: 0 auto; padding: clamp(80px, 14vh, 150px) 20px 0; }
+.section { max-width: 1200px; margin: 0 auto; padding: clamp(80px, 14vh, 150px) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left)); }
 .section-head { max-width: 820px; margin-bottom: 48px; }
 .eyebrow { color: var(--accent); font-weight: 700; font-size: 15px; letter-spacing: .02em; margin-bottom: 14px; }
 .section h2 { font-size: clamp(32px, 5vw, 58px); font-weight: 800; }
@@ -615,11 +618,17 @@ code { font-size: .92em; }
 @keyframes triBounce { 0%, 60%, 100% { transform: none; } 75% { transform: translateX(10px) scaleX(1.12); } }
 .final h2 { font-size: clamp(40px, 7vw, 84px); font-weight: 800; letter-spacing: -.05em; }
 
-.footer { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 28px; max-width: 1200px; margin: 110px auto 0; padding: 30px 20px 50px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+.footer { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 28px; max-width: 1200px; margin: 110px auto 0; padding: 30px max(20px, env(safe-area-inset-right)) calc(50px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+.footer a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; }
 .footer p { flex: 1; min-width: 240px; }
 .footer .brand { font-size: 16px; color: var(--text); }
 
 /* ---------- Anpassung an Geräte ---------- */
+/* Zu schmal für alle Menüpunkte (auch Handy quer mit Kamera-Ausschnitt): ausblenden statt umbrechen */
+@media (max-width: 1080px) {
+  .nav-links { display: none; }
+  .nav-actions { margin-left: auto; }
+}
 @media (max-width: 980px) {
   .bento { grid-template-columns: 1fr 1fr; }
   .card-wide { grid-column: span 2; }
@@ -740,3 +749,7 @@ code { font-size: .92em; }
 @keyframes ck-pop { 0%, 4% { transform: scale(.4); } 9% { transform: scale(1.25); } 13%, 88% { transform: scale(1); } 100% { transform: scale(.4); } }
 @media (prefers-reduced-motion: reduce) { .ck-rows li, .ck-rows li::before, .ck-prog { animation: none !important; opacity: 1; transform: none; stroke-dashoffset: 0; } }
 @media (max-width: 560px) { .ck-card { flex-direction: column; align-items: stretch; } .ck-ring { align-self: center; } }
+
+/* Ruhige Flächen und Knöpfe wie in der App */
+.stat { border-top-color: color-mix(in srgb, var(--text) 12%, transparent); }
+.btn-ghost { background: color-mix(in srgb, var(--text) 7%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent); }
