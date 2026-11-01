@@ -1,5 +1,6 @@
-import 'dart:ui';
+import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,11 +11,13 @@ import 'errors.dart';
 import 'links.dart';
 import 'perf.dart';
 import 'playback.dart';
+import 'repo.dart';
 import 'store.dart';
 import 'ui/common.dart';
 import 'ui/fx.dart';
 import 'ui/setup.dart';
 import 'ui/splash.dart';
+import 'ui/start.dart' show iptvSource;
 import 'i18n.dart';
 import 'update.dart';
 
@@ -37,27 +40,35 @@ Future<void> main(List<String> args) async {
   } catch (e) {
     mpvMissing = e;
   }
-  if (Platform.isAndroid) {
-    // Alte Android-Versionen kennen ISRG Root X1 (Let's Encrypt) nicht: für Playlists/EPG nachrüsten
-    try {
-      final pem = await rootBundle.load('assets/certs/isrgrootx1.pem');
-      SecurityContext.defaultContext.setTrustedCertificatesBytes(pem.buffer.asUint8List());
-    } catch (_) {
-      /* schon bekannt */
-    }
-  }
-  await store.init();
+  // Alte Android-Versionen kennen ISRG Root X1 (Let's Encrypt) nicht: für Playlists/EPG nachrüsten
+  final certs = Platform.isAndroid
+      ? rootBundle.load('assets/certs/isrgrootx1.pem').then((pem) {
+          SecurityContext.defaultContext.setTrustedCertificatesBytes(pem.buffer.asUint8List());
+        }).catchError((_) {/* schon bekannt */})
+      : Future<void>.value();
+  await Future.wait([certs, store.init()]);
   isLight = resolveLight();
-  await deleteUpdateFiles();
-  await Perf.init();
-  await downloads.init();
-  await Links.init(args);
-  if (Platform.isAndroid) {
-    try {
-      isAndroidTv = await const MethodChannel('cinemamax/device').invokeMethod<bool>('isTv') ?? false;
-    } catch (_) {}
-    await Engine.detectScreen();
+  // Liste der zuletzt genutzten Quelle schon jetzt aus dem Cache lesen (im Hintergrund):
+  // beim Öffnen ist sie sofort da statt nach einer Ladeanzeige
+  final last = store.sources.where((s) => s.id == store.get('lastSource', '')).firstOrNull;
+  if (last != null) {
+    Repo.preload(last);
+  } else if (store.get('lastMode', '') == 'iptv') {
+    Repo.preload(iptvSource());
   }
+  // Unabhängige Schritte gleichzeitig statt nacheinander: schnellerer Start
+  unawaited(deleteUpdateFiles());
+  await Future.wait<void>([
+    Perf.init(),
+    downloads.init(),
+    Links.init(args),
+    if (Platform.isAndroid)
+      const MethodChannel('cinemamax/device')
+          .invokeMethod<bool>('isTv')
+          .then((v) => isAndroidTv = v ?? false)
+          .catchError((_) => false),
+    if (Platform.isAndroid) Engine.detectScreen(),
+  ]);
   runApp(const App());
   if (mpvMissing != null) {
     WidgetsBinding.instance.addPostFrameCallback((_) => reportError(
@@ -188,7 +199,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse, PointerDeviceKind.trackpad},
       ),
       // Startanimation nur beim ersten Aufbau
-      home: store.get('intro', true) && !store.reduceMotion && !_introShown
+      // Startanimation (2,6 s) nur, wenn eingeschaltet: standardmäßig öffnet die App sofort
+      home: store.get('intro', false) && !store.reduceMotion && !_introShown
           ? const SplashScreen()
           : firstScreen(),
     );

@@ -13,6 +13,9 @@ final _seriesPath = RegExp(r'/(series|serie|shows)/', caseSensitive: false);
 final _movieGroup = RegExp(r'\b(vod|movies?|filme?|films|cinema|kino|4k uhd movies)\b', caseSensitive: false);
 final _seriesGroup = RegExp(r'\b(series|serien?|tv ?shows?|dizi(ler)?|staffel)\b', caseSensitive: false);
 
+final _liveFile = RegExp(r'\.(ts|m3u8?)$', caseSensitive: false);
+final _lineBreak = RegExp(r'\r\n?|\n');
+
 final _tvgUrl = RegExp(r'(?:url-tvg|x-tvg-url|tvg-url)="([^"]+)"', caseSensitive: false);
 
 /// EPG-Adresse aus dem #EXTM3U-Kopf (erste nur, falls mehrere per Komma).
@@ -38,7 +41,7 @@ Kind classify(String url, String name, String group, String? tvgType) {
   final vodFile = _vodExt.hasMatch(path);
   if (_episode.hasMatch(name) && (vodFile || _seriesGroup.hasMatch(group))) return Kind.series;
   // .ts/.m3u8 sind fast immer Live-Sender, auch in Kategorien wie "DE | KINO"
-  final liveFile = RegExp(r'\.(ts|m3u8?)$', caseSensitive: false).hasMatch(path);
+  final liveFile = _liveFile.hasMatch(path);
   if (_seriesGroup.hasMatch(group) && !liveFile) return Kind.series;
   if (vodFile || (_movieGroup.hasMatch(group) && !liveFile)) return Kind.movie;
   return Kind.live;
@@ -56,7 +59,7 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
   String? extGroup;
   final headers = <String, String>{}; // aus #EXTVLCOPT / #EXTHTTP, gilt für den nächsten Link
 
-  for (var line in text.split(RegExp(r'\r\n?|\n'))) {
+  for (var line in text.split(_lineBreak)) {
     line = line.trim();
     if (line.isEmpty) continue;
     if (line.startsWith('#EXTINF')) {
@@ -71,26 +74,29 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
       extGroup = line.substring(8).trim();
       continue;
     }
-    final vlc = _vlcOpt.firstMatch(line);
-    if (vlc != null) {
-      headers[vlc.group(1)!.toLowerCase() == 'http-user-agent' ? 'User-Agent' : 'Referer'] = vlc.group(2)!.trim();
-      continue;
-    }
-    if (line.startsWith('#EXTHTTP:')) {
-      for (final m in _jsonPair.allMatches(line)) {
-        headers[m.group(1)!] = m.group(2)!;
+    // Übrige Kommentarzeilen: Header für den nächsten Link (Regex nur für #-Zeilen, nicht für jeden Link)
+    if (line.startsWith('#')) {
+      final vlc = _vlcOpt.firstMatch(line);
+      if (vlc != null) {
+        headers[vlc.group(1)!.toLowerCase() == 'http-user-agent' ? 'User-Agent' : 'Referer'] = vlc.group(2)!.trim();
+        continue;
+      }
+      if (line.startsWith('#EXTHTTP:')) {
+        for (final m in _jsonPair.allMatches(line)) {
+          headers[m.group(1)!] = m.group(2)!;
+        }
+        continue;
+      }
+      final kodi = _kodiHeaders.firstMatch(line);
+      if (kodi != null) {
+        for (final part in kodi.group(1)!.split('&')) {
+          final k = part.indexOf('=');
+          if (k > 0) headers[_decode(part.substring(0, k))] = _decode(part.substring(k + 1));
+        }
+        continue;
       }
       continue;
     }
-    final kodi = _kodiHeaders.firstMatch(line);
-    if (kodi != null) {
-      for (final part in kodi.group(1)!.split('&')) {
-        final k = part.indexOf('=');
-        if (k > 0) headers[_decode(part.substring(0, k))] = _decode(part.substring(k + 1));
-      }
-      continue;
-    }
-    if (line.startsWith('#')) continue;
 
     // Manche Listen setzen Header als Attribut: #EXTINF:-1 http-user-agent="…" http-referrer="…"
     final ua = attrs['http-user-agent'] ?? attrs['user-agent'];

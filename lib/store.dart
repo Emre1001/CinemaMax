@@ -20,6 +20,16 @@ class Store extends ChangeNotifier {
     sources = [for (final j in _json('sources', [])) Source.fromJson(j)];
     favs = Map<String, Map<String, dynamic>>.from(_json('favs', {}));
     history = Map<String, Map<String, dynamic>>.from(_json('history', {}));
+    // Ältere Versionen speicherten bei M3U-Serien die ganze Folgenliste mit: einmal verkleinern
+    // (spart Speicher und macht jedes Speichern des Fortschritts schneller)
+    for (final (key, map) in [('history', history), ('favs', favs)]) {
+      var slim = false;
+      for (final e in map.values) {
+        final item = e['item'];
+        if (item is Map && item.remove('eps') != null) slim = true;
+      }
+      if (slim) await _p.setString(key, jsonEncode(map));
+    }
     // Früheres Standard-Orange auf das neue Standard-Blau umstellen (einmalig)
     if (_p.getInt('accent') == 0xFFE5A23A && !(_p.getBool('accentMigrated') ?? false)) await _p.remove('accent');
     await _p.setBool('accentMigrated', true);
@@ -30,16 +40,28 @@ class Store extends ChangeNotifier {
     return s == null ? def : jsonDecode(s);
   }
 
-  T get<T>(String k, T def) => (_p.get(k) as T?) ?? def;
+  /// Wert oder [def]. Falscher Typ (z. B. aus einer alten Sicherung: 2 statt 2.0) stürzt nicht ab.
+  T get<T>(String k, T def) {
+    final v = _p.get(k);
+    if (v == null) return def;
+    if (v is T) return v as T;
+    if (v is num && def is double) return v.toDouble() as T;
+    if (v is num && def is int) return v.toInt() as T;
+    return def;
+  }
 
-  void set(String k, Object v) {
+  /// Speichert eine Einstellung. Unveränderte Werte lösen keinen Neuaufbau aus; [notify] false für
+  /// Merker ohne sichtbare Wirkung (zuletzt gewählte Kategorie usw.), sonst baut sich bei jedem Klick
+  /// die ganze App neu auf.
+  void set(String k, Object v, {bool notify = true}) {
+    if (_p.get(k) == v) return;
     switch (v) {
       case bool b: _p.setBool(k, b);
       case int i: _p.setInt(k, i);
       case double d: _p.setDouble(k, d);
       case String s: _p.setString(k, s);
     }
-    notifyListeners();
+    if (notify) notifyListeners();
   }
 
   // ---- häufig genutzte Einstellungen ----
@@ -87,15 +109,20 @@ class Store extends ChangeNotifier {
 
   void toggleFav(Source s, MediaItem m) {
     final k = favKey(s, m);
-    favs.containsKey(k) ? favs.remove(k) : favs[k] = {'src': s.id, 'item': m.toJson()};
+    // Ohne Folgenliste speichern (M3U-Serien: kann Tausende Folgen enthalten); die kommt aus der Playlist
+    favs.containsKey(k) ? favs.remove(k) : favs[k] = {'src': s.id, 'item': m.toJson(episodes: false)};
+    _favCache.clear();
     _p.setString('favs', jsonEncode(favs));
     notifyListeners();
   }
 
-  List<MediaItem> favsOf(Source s, Kind k) => [
+  final _favCache = <String, List<MediaItem>>{};
+
+  /// Favoriten einer Quelle und Art (zwischengespeichert: wird bei jedem Neuaufbau mehrfach abgefragt).
+  List<MediaItem> favsOf(Source s, Kind k) => _favCache['${s.id}|${k.index}'] ??= [
         for (final f in favs.values)
-          if (f['src'] == s.id) MediaItem.fromJson(f['item']),
-      ].where((m) => m.kind == k).toList();
+          if (f['src'] == s.id && f['item']['kind'] == k.index) MediaItem.fromJson(f['item']),
+      ];
 
   // ---- Verlauf / Fortsetzen ----
   Duration? resumeAt(String url) {
@@ -116,7 +143,7 @@ class Store extends ChangeNotifier {
   void saveProgress(Source s, MediaItem item, String url, String title, Duration pos, Duration dur) {
     history[url] = {
       'src': s.id,
-      'item': item.toJson(),
+      'item': item.toJson(episodes: false),
       'title': title,
       'pos': pos.inMilliseconds,
       'dur': dur.inMilliseconds,
@@ -148,27 +175,31 @@ class Store extends ChangeNotifier {
   }
 
   // ---- Ausgeblendete Kategorien ----
-  Set<String> get hiddenGroups => {...(_p.getStringList('hiddenGroups') ?? const [])};
+  Set<String>? _hidden;
+  Set<String> get hiddenGroups => _hidden ??= {...(_p.getStringList('hiddenGroups') ?? const [])};
   bool isHidden(Source s, Kind k, String g) => hiddenGroups.contains('${s.id}|${k.index}|$g');
 
   void hideGroup(Source s, Kind k, String g) {
-    _p.setStringList('hiddenGroups', [...hiddenGroups, '${s.id}|${k.index}|$g']);
+    _hidden = {...hiddenGroups, '${s.id}|${k.index}|$g'};
+    _p.setStringList('hiddenGroups', _hidden!.toList());
     notifyListeners();
   }
 
   void unhideAll() {
+    _hidden = null;
     _p.remove('hiddenGroups');
     notifyListeners();
   }
 
   // ---- Zuletzt gesehene Live-Sender ----
-  List<MediaItem> recentLive(Source s) => [
+  final _recentLive = <String, List<MediaItem>>{};
+  List<MediaItem> recentLive(Source s) => _recentLive[s.id] ??= [
         for (final j in _json('recentLive_${s.id}', [])) MediaItem.fromJson(j),
       ];
 
   void addRecentLive(Source s, MediaItem m) {
-    final l = [m, ...recentLive(s).where((x) => x.id != m.id)].take(20).toList();
-    _p.setString('recentLive_${s.id}', jsonEncode(l));
+    final l = _recentLive[s.id] = [m, ...recentLive(s).where((x) => x.id != m.id)].take(20).toList();
+    _p.setString('recentLive_${s.id}', jsonEncode([for (final x in l) x.toJson(episodes: false)]));
   }
 
   // ---- Sicherung: Server, Favoriten, Einstellungen als JSON ----
@@ -193,16 +224,23 @@ class Store extends ChangeNotifier {
         case List l: await _p.setStringList(e.key, l.cast<String>());
       }
     }
+    _hidden = null;
+    _recentLive.clear();
+    _favCache.clear();
     await init();
     notifyListeners();
   }
 
   void clearFavs() {
     favs.clear();
+    _favCache.clear();
     _p.remove('favs');
     notifyListeners();
   }
 }
 
 final _adult = RegExp(r'adult|xxx|18\+|porn|erotic|\bsex', caseSensitive: false);
-bool isAdult(String group) => _adult.hasMatch(group);
+final _adultCache = <String, bool>{};
+
+/// Erwachsenen-Kategorie? Je Kategoriename nur einmal geprüft (wird für jeden Eintrag gefragt).
+bool isAdult(String group) => _adultCache[group] ??= _adult.hasMatch(group);

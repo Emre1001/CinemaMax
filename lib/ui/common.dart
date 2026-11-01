@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
@@ -109,7 +110,11 @@ class _TapState extends State<Tap> {
     if (!widget.autofocus || _autofocused || !(ModalRoute.isCurrentOf(context) ?? true)) return;
     _autofocused = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && FocusScope.of(context).focusedChild == null) _node.requestFocus();
+      if (!mounted || FocusScope.of(context).focusedChild != null) return;
+      _node.requestFocus();
+      // Gewählter Eintrag weit unten in einer Liste (z. B. „Alle Länder“, 15. Tonspur): hinscrollen, sonst
+      // steht der Fokus unsichtbar außerhalb und die Fernbedienung scheint nicht zu reagieren
+      Scrollable.ensureVisible(context, alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd);
     });
   }
 
@@ -366,46 +371,65 @@ void toast(BuildContext c, String msg) => ScaffoldMessenger.of(c)
   ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating, width: 420));
 
 /// Auswahlliste als Dialog, D-Pad-tauglich. Gibt gewählten Wert zurück.
-Future<T?> pick<T>(BuildContext c, String title, Map<T, String> options, {T? current, Widget Function(T)? leading}) =>
-    showDialog<T>(
-      context: c,
-      builder: (c) => Dialog(
+/// Alle Einträge werden gebaut (nicht erst beim Scrollen): sonst existiert der gewählte Eintrag weit unten
+/// noch nicht, bekommt keinen Fokus und die Fernbedienung bleibt hängen (lange Länder-/Sprachlisten).
+Future<T?> pick<T>(BuildContext c, String title, Map<T, String> options, {T? current, Widget Function(T)? leading}) {
+  final entries = options.entries.toList();
+  final focusIndex = current == null ? 0 : entries.indexWhere((e) => e.key == current).clamp(0, entries.length);
+  return showDialog<T>(
+    context: c,
+    builder: (c) {
+      Widget row(int i) {
+        final e = entries[i];
+        return Tap(
+          fill: true,
+          scale: 1,
+          autofocus: i == focusIndex,
+          onTap: () => Navigator.pop(c, e.key),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+            child: Row(children: [
+              if (leading != null) ...[leading(e.key), const SizedBox(width: 14)],
+              Expanded(child: Text(e.value, style: const TextStyle(fontSize: 15))),
+              if (e.key == current) Icon(Icons.check, size: 20, color: Theme.of(c).colorScheme.primary),
+            ]),
+          ),
+        );
+      }
+
+      const pad = EdgeInsets.fromLTRB(10, 0, 10, 14);
+      // Sehr lange Listen (Hunderte Kategorien): doch erst beim Scrollen bauen, dafür zum Eintrag springen
+      final list = entries.length <= 400
+          ? SingleChildScrollView(
+              padding: pad,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                for (var i = 0; i < entries.length; i++) row(i),
+              ]),
+            )
+          : ListView.builder(
+              padding: pad,
+              itemExtent: 48,
+              controller: ScrollController(initialScrollOffset: math.max(0, focusIndex * 48.0 - 200)),
+              itemCount: entries.length,
+              itemBuilder: (_, i) => row(i),
+            );
+      return Dialog(
         backgroundColor: surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420, maxHeight: 560),
+          constraints: BoxConstraints(maxWidth: 420, maxHeight: math.min(560, MediaQuery.sizeOf(c).height * .86)),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
               child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             ),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.fromLTRB(10, 0, 10, 14),
-                children: [
-                  for (final (i, e) in options.entries.indexed)
-                    Tap(
-                      fill: true,
-                      scale: 1,
-                      autofocus: current == null ? i == 0 : e.key == current,
-                      onTap: () => Navigator.pop(c, e.key),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
-                        child: Row(children: [
-                          if (leading != null) ...[leading(e.key), const SizedBox(width: 14)],
-                          Expanded(child: Text(e.value, style: const TextStyle(fontSize: 15))),
-                          if (e.key == current) Icon(Icons.check, size: 20, color: Theme.of(c).colorScheme.primary),
-                        ]),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+            Flexible(child: list),
           ]),
         ),
-      ),
-    );
+      );
+    },
+  );
+}
 
 /// Textfelder geben Pfeil hoch/runter an die Fokus-Navigation weiter (sonst bleibt die Fernbedienung im Feld hängen).
 Widget dpadField(Widget field) => Shortcuts(

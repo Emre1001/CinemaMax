@@ -270,7 +270,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       n.dispose();
     }
     _stillBtn.dispose();
-    store.set('volume', _volume);
+    store.set('volume', _volume, notify: false);
     if (_phone) _device.invokeMethod('autoPip', false).catchError((_) {});
     WidgetsBinding.instance.removeObserver(this);
     if (--_open == 0 && Platform.isAndroid) {
@@ -870,36 +870,43 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   void _audioSubs() => _menu(() async {
     final audio = await _e.audioTracks();
     final subs = await _e.subtitleTracks();
+    var cur = await _e.currentAudio() ?? audio.firstOrNull?.id;
     if (!mounted) return;
+    String subOn() => _e.subtitleId ?? (store.get('subsOn', false) ? 'auto' : 'no');
     await _panel<void>(tr('Ton & Untertitel'), (c, setPanel) {
-      return ListView(
+      // Alle Einträge bauen (Spalte statt Liste, die erst beim Scrollen baut): bei vielen Tonspuren
+      // (IPTV mit 10+ Sprachen) bekommt sonst die gewählte Spur weiter unten keinen Fokus
+      return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(10, 24, 10, 24),
-        children: [
-          _panelTitle(tr('Ton & Untertitel')),
-          _section(tr('Tonspur')),
-          if (audio.isEmpty) _option(tr('Standard'), true, () {}, autofocus: true),
-          for (final (i, t) in audio.indexed)
-            _option(t.label, t.id == _e.audioId || (_e.audioId == null && i == 0), () async {
-              await _e.selectAudio(t.id);
-              setPanel(() {});
-            }, autofocus: t.id == _e.audioId || (_e.audioId == null && i == 0)),
-          _section(tr('Untertitel')),
-          if (subs.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Text(
-                _e is ExoEngine
-                    ? tr('Untertitel: in den Einstellungen Player „mpv“ wählen')
-                    : tr('Keine Untertitel vorhanden'),
-                style: const TextStyle(color: kDim),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _panelTitle(tr('Ton & Untertitel')),
+            _section(audio.length > 1 ? tr('Tonspur · {0}', [audio.length]) : tr('Tonspur')),
+            if (audio.isEmpty) _option(tr('Standard'), true, () {}, autofocus: true),
+            for (final t in audio)
+              _option(t.label, t.id == cur, () async {
+                await _e.selectAudio(t.id);
+                setPanel(() => cur = t.id);
+              }, autofocus: t.id == cur),
+            _section(tr('Untertitel')),
+            if (subs.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Text(
+                  _e is ExoEngine
+                      ? tr('Untertitel: in den Einstellungen Player „mpv“ wählen')
+                      : tr('Keine Untertitel vorhanden'),
+                  style: const TextStyle(color: kDim),
+                ),
               ),
-            ),
-          for (final t in subs)
-            _option(t.label, t.id == (_e.subtitleId ?? (store.get('subsOn', false) ? 'auto' : 'no')), () async {
-              await _e.selectSubtitle(t.id);
-              setPanel(() {});
-            }),
-        ],
+            for (final t in subs)
+              _option(t.label, t.id == subOn(), () async {
+                await _e.selectSubtitle(t.id);
+                setPanel(() {});
+              }),
+          ],
+        ),
       );
     });
   });

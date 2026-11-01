@@ -26,6 +26,14 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 
 ---
 
+## ⚡ Neu in 1.7.3
+
+- **Schneller**: die App öffnet sofort (Startanimation ist jetzt aus, in Einstellungen › Start wieder einschaltbar), die zuletzt genutzte Liste wird schon beim Start im Hintergrund geladen, Start-Schritte laufen gleichzeitig
+- **Weniger Last für die Server**: Verbindungen werden wiederverwendet (Keep-alive, gzip), gleiche Anfragen gehen nur einmal raus, Details, Folgen und EPG werden kurz zwischengespeichert, der Programmführer wird nur neu geladen, wenn er sich geändert hat; mpv lädt höchstens 60 s im Voraus. Auflösung und Bildrate bleiben dabei maximal (bis zur Bildschirmauflösung)
+- **Fernbedienung**: Einstellungen aus der Seitenleiste öffnen ohne Fokus-Sprung; die Seitenleiste klappt über dem Inhalt auf, statt ihn zu verschieben
+- **Viele Sprachen/Länder**: lange Auswahllisten (IPTV-Land, Tonspuren mit 10+ Sprachen) springen zum gewählten Eintrag; viele Länder-Präfixe einer Liste kommen als Auswahl statt als überlaufende Leiste; Tonspuren zeigen Format (Stereo/5.1, AAC/Dolby)
+- **Fehlerfixes**: kein Absturz bei verschwundenen Tonspuren (Live), alte Sicherungen mit anderem Zahlentyp, lange Servernamen in der Kopfzeile; Verlauf und Favoriten speichern keine riesigen Folgenlisten mehr
+
 ## 🛠️ Neu in 1.7.2
 
 - **Schlichteres Aussehen**: keine bewegten Farbwolken, Lichtpunkte, Glanzstreifen und Verläufe mehr. Die Leistungsmodi unterscheiden sich nur noch in den Animationen
