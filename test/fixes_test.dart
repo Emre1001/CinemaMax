@@ -6,6 +6,7 @@ import 'package:cinemamax/repo.dart';
 import 'package:cinemamax/store.dart';
 import 'package:cinemamax/ui/browse.dart';
 import 'package:cinemamax/ui/common.dart';
+import 'package:cinemamax/ui/fx.dart';
 import 'package:cinemamax/ui/settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -170,6 +171,48 @@ void main() {
       expect(t.takeException(), isNull); // langer Quellenname sprengt die Kopfzeile nicht
       store.set('layout', 'auto');
       store.set('startTab', 'mine');
+    });
+
+    testWidgets('Seitenwechsel nach Startbild/Einrichtung: alte und neue Seite nie übereinander', (t) async {
+      store.set('perf', 'full');
+      double opacityOf(String text) {
+        var o = 1.0;
+        t.element(find.text(text, skipOffstage: false)).visitAncestorElements((e) {
+          final w = e.widget;
+          if (w is FadeTransition) o *= w.opacity.value;
+          return true;
+        });
+        return o;
+      }
+
+      final nav = GlobalKey<NavigatorState>();
+      await t.pumpWidget(MaterialApp(
+        navigatorKey: nav,
+        theme: ThemeData(pageTransitionsTheme: const PageTransitionsTheme(builders: {
+          TargetPlatform.android: FxPageTransitions(),
+        })),
+        home: const Text('Startbild'),
+      ));
+      // Wie Splash → Startbildschirm
+      nav.currentState!.pushReplacement(fxFadeRoute(const Scaffold(body: Text('Start'))));
+      await t.pumpAndSettle();
+      // Startbildschirm → IPTV-/Serverliste
+      nav.currentState!.push(MaterialPageRoute(builder: (_) => const Scaffold(body: Text('Listen'))));
+      for (final ms in [60, 120, 200, 300, 400]) {
+        await t.pump(const Duration(milliseconds: 60));
+        final a = opacityOf('Start'), b = opacityOf('Listen');
+        expect(a == 0 || b == 0, isTrue, reason: 'nach ${ms}ms: Start $a, Listen $b');
+      }
+      await t.pumpAndSettle();
+      // Zurück: ebenso
+      nav.currentState!.pop();
+      for (var i = 0; i < 6; i++) {
+        await t.pump(const Duration(milliseconds: 60));
+        final a = opacityOf('Start'), b = opacityOf('Listen');
+        expect(a == 0 || b == 0, isTrue, reason: 'zurück ${i * 60}ms: Start $a, Listen $b');
+      }
+      await t.pumpAndSettle();
+      store.set('perf', 'auto');
     });
   });
 }

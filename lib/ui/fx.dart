@@ -116,6 +116,27 @@ class GlowButton extends StatelessWidget {
   }
 }
 
+/// Alte Seite im ersten Drittel des Wechsels ausblenden, wenn eine neue darüber kommt (und beim Zurück
+/// erst im letzten Drittel wieder einblenden). Seiten sind durchsichtig (gemeinsamer Hintergrund):
+/// ohne das sieht man beide Seiten übereinander.
+Widget fxOutgoing(Animation<double> secondary, Widget child) {
+  if (store.reduceMotion) return child;
+  final hidden = CurvedAnimation(parent: secondary, curve: const Interval(0, .3, curve: Curves.easeIn));
+  return FadeTransition(opacity: Tween(begin: 1.0, end: 0.0).animate(hidden), child: child);
+}
+
+/// Einblenden ohne Gleiten (Startbild → App, Einrichtung → Start). Blendet auch selbst aus, wenn danach
+/// eine Seite darüber geöffnet wird, z. B. IPTV oder M3U/Xtream/Stalker vom Startbildschirm.
+Route<T> fxFadeRoute<T>(Widget page, {int ms = 500}) => PageRouteBuilder<T>(
+      transitionDuration: fxMs(ms),
+      reverseTransitionDuration: fxMs(420),
+      pageBuilder: (_, _, _) => page,
+      transitionsBuilder: (_, a, secondary, child) => fxOutgoing(
+        secondary,
+        FadeTransition(opacity: CurvedAnimation(parent: a, curve: Curves.easeOut), child: child),
+      ),
+    );
+
 /// Seitenwechsel wie in der Einrichtung: neue Seite gleitet und blendet ein, leicht vergrößert.
 class FxPageTransitions extends PageTransitionsBuilder {
   const FxPageTransitions();
@@ -123,19 +144,24 @@ class FxPageTransitions extends PageTransitionsBuilder {
   @override
   Duration get transitionDuration => fxMs(420);
 
+  /// Seite darunter ist keine normale Seite (z. B. Startbildschirm nach Startbild/Einrichtung): Flutter friert
+  /// dann deren eigenes Ausblenden ein und nimmt nur diese Übergabe. Ohne sie blieb der Startbildschirm beim
+  /// Öffnen von IPTV oder M3U/Xtream/Stalker voll sichtbar und beide Seiten lagen übereinander.
+  @override
+  DelegatedTransitionBuilder? get delegatedTransition =>
+      (_, _, secondaryAnimation, _, child) => fxOutgoing(secondaryAnimation, child ?? const SizedBox.shrink());
+
   @override
   Widget buildTransitions<T>(PageRoute<T> route, BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation, Widget child) {
     if (store.reduceMotion) return child;
     // Fade-Through: die alte Seite ist im ersten Drittel weg, erst danach kommt die neue.
     // Seiten sind durchsichtig (gemeinsamer Hintergrund): so sieht man nie beide übereinander.
-    const inPart = Interval(.3, 1, curve: Curves.easeOutCubic), outPart = Interval(0, .3, curve: Curves.easeIn);
     // Gleiche Kurve auch beim Zurück: oben liegende Seite geht zuerst, die darunter kommt danach
-    final shown = CurvedAnimation(parent: animation, curve: inPart);
-    final hidden = CurvedAnimation(parent: secondaryAnimation, curve: outPart);
-    return FadeTransition(
-      opacity: Tween(begin: 1.0, end: 0.0).animate(hidden),
-      child: FadeTransition(
+    final shown = CurvedAnimation(parent: animation, curve: const Interval(.3, 1, curve: Curves.easeOutCubic));
+    return fxOutgoing(
+      secondaryAnimation,
+      FadeTransition(
         opacity: shown,
         child: Perf.lite ? child : ScaleTransition(scale: Tween(begin: .97, end: 1.0).animate(shown), child: child),
       ),
