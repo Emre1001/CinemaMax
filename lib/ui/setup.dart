@@ -22,12 +22,7 @@ Widget firstScreen() => store.get('setupDone', false) ? const StartScreen() : co
 
 const _green = Color(0xFF30A46C), _amber = Color(0xFFE5A23A), _red = Color(0xFFE5484D);
 
-Route<void> _fade(Widget page) => PageRouteBuilder(
-      transitionDuration: fxMs(500),
-      pageBuilder: (_, _, _) => page,
-      transitionsBuilder: (_, a, _, child) =>
-          FadeTransition(opacity: CurvedAnimation(parent: a, curve: Curves.easeOut), child: child),
-    );
+Route<void> _fade(Widget page) => fxFadeRoute(page);
 
 /// Gerätetyp ohne die Einstellung „Oberfläche“ (wie [formFactor] bei „Automatisch“).
 Ff _detected(BuildContext c) {

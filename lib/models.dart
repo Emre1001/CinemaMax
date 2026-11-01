@@ -67,7 +67,8 @@ class MediaItem {
     this.archive = 0,
   });
 
-  Map<String, dynamic> toJson() => {
+  /// [episodes] false: ohne Folgenliste (Verlauf/Favoriten klein halten; die Folgen kommen aus der Quelle).
+  Map<String, dynamic> toJson({bool episodes = true}) => {
         'id': id,
         'name': name,
         'kind': kind.index,
@@ -79,7 +80,7 @@ class MediaItem {
         'year': year,
         'added': added,
         if (archive > 0) 'arch': archive,
-        if (episodes != null) 'eps': episodes!.map((e) => e.toJson()).toList(),
+        if (episodes && this.episodes != null) 'eps': this.episodes!.map((e) => e.toJson()).toList(),
       };
 
   factory MediaItem.fromJson(Map<String, dynamic> j) => MediaItem(

@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart' as mk;
 
 import '../store.dart';
 import 'common.dart';
+import 'fx.dart';
 import 'setup.dart';
 
 /// Startanimation: das App-Zeichen (Balken + Play-Dreieck) wird zum Schriftzug „CinemaMax“.
@@ -41,16 +42,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void _leave() {
     if (_left || !mounted) return;
     _left = true;
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 380),
-        pageBuilder: (_, _, _) => firstScreen(),
-        transitionsBuilder: (_, a, _, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: a, curve: Curves.easeOut),
-          child: child,
-        ),
-      ),
-    );
+    // Mit Ausblenden, wenn danach eine Seite darüber kommt (sonst sieht man Start und Liste übereinander)
+    Navigator.of(context).pushReplacement(fxFadeRoute(firstScreen(), ms: 380));
     // Ton ausklingen lassen, dann freigeben
     Timer(const Duration(seconds: 2), () => _sound?.dispose());
   }

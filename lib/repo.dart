@@ -20,9 +20,53 @@ class Repo {
 
   static Map<String, String> get headers => {'User-Agent': store.userAgent};
 
+  /// Gemeinsame Verbindungen für alle API-/Playlist-Anfragen: Keep-alive spart pro Anfrage den
+  /// TCP-/TLS-Aufbau (schneller, weniger Last für den Server), höchstens 4 Verbindungen je Server
+  /// (Flood-Schutz vieler Panels). gzip ist an: große Xtream-Listen kommen 5–10× kleiner.
+  static final http.Client _shared = IOClient(_httpClient());
+
+  /// Gemeinsamer Client; Tests ersetzen ihn per http.runWithClient.
+  static http.Client get _client {
+    final c = http.Client();
+    if (c is! IOClient) return c;
+    c.close(); // kein Ersatz gesetzt: gemeinsame Verbindungen nutzen
+    return _shared;
+  }
+
+  /// Wie [_client], nimmt aber ungültige Zertifikate an (Rückfall, wie mpv/VLC).
+  static final http.Client _lenient = IOClient(_httpClient()..badCertificateCallback = (_, _, _) => true);
+
+  static HttpClient _httpClient() => HttpClient()
+    ..idleTimeout = const Duration(seconds: 20)
+    ..maxConnectionsPerHost = 4
+    ..connectionTimeout = const Duration(seconds: 20)
+    ..autoUncompress = true;
+
   /// Client für IPTV-Server (Streams, Downloads, EPG): ungültige Zertifikate (abgelaufen, selbst signiert)
   /// trotzdem annehmen, wie mpv/VLC. Der Rückruf kommt nur für Zertifikate, die die Prüfung nicht bestehen.
   static http.Client iptvClient() => IOClient(HttpClient()..badCertificateCallback = (_, _, _) => true);
+
+  // ---- Kurzzeit-Cache für API-Antworten (Details, Folgen, EPG, Kontoinfo) ----
+  // Gleiche Anfrage mehrfach (Detailseite erneut öffnen, Zappen zurück, Serverliste) geht nicht
+  // jedes Mal an den Server; gleichzeitige gleiche Anfragen teilen sich eine Verbindung.
+  static final _apiCache = <String, ({DateTime at, Future<Object?> value})>{};
+
+  static Future<T> _cached<T>(String key, Duration ttl, Future<T> Function() run) {
+    final hit = _apiCache[key];
+    if (hit != null && DateTime.now().difference(hit.at) < ttl) return hit.value.then((v) => v as T);
+    if (_apiCache.length > 400) {
+      // Älteste Hälfte verwerfen
+      final keys = (_apiCache.entries.toList()..sort((a, b) => a.value.at.compareTo(b.value.at))).take(200).map((e) => e.key);
+      keys.toList().forEach(_apiCache.remove);
+    }
+    final f = run();
+    _apiCache[key] = (at: DateTime.now(), value: f);
+    // Fehler nicht zwischenspeichern: beim nächsten Mal neu versuchen
+    f.then<void>((_) {}, onError: (Object _) {
+      if (identical(_apiCache[key]?.value, f)) _apiCache.remove(key);
+    });
+    return f;
+  }
 
   static Future<String> _get(String url) async {
     // Playlist als Datei (über „Öffnen mit“ übernommen oder lokal eingetragen)
@@ -47,20 +91,12 @@ class Repo {
       return out.takeBytes();
     }
 
-    final client = http.Client();
     try {
-      return decodeText(await read(client));
+      return decodeText(await read(_client));
     } on HandshakeException catch (e) {
       // IPTV-Server haben oft abgelaufene oder selbst signierte Zertifikate
       if (!'$e'.contains('CERTIFICATE_VERIFY_FAILED')) rethrow;
-      final c = IOClient(HttpClient()..badCertificateCallback = (_, _, _) => true);
-      try {
-        return decodeText(await read(c));
-      } finally {
-        c.close();
-      }
-    } finally {
-      client.close();
+      return decodeText(await read(_lenient));
     }
   }
 
@@ -92,15 +128,10 @@ class Repo {
   /// GET; IPTV-Server haben oft abgelaufene oder selbst signierte Zertifikate: dann ohne Prüfung erneut.
   static Future<http.Response> _request(Uri u, Map<String, String> h, Duration timeout) async {
     try {
-      return await http.get(u, headers: h).timeout(timeout);
+      return await _client.get(u, headers: h).timeout(timeout);
     } on HandshakeException catch (e) {
       if (!'$e'.contains('CERTIFICATE_VERIFY_FAILED')) rethrow;
-      final c = IOClient(HttpClient()..badCertificateCallback = (_, _, _) => true);
-      try {
-        return await c.get(u, headers: h).timeout(timeout);
-      } finally {
-        c.close();
-      }
+      return await _lenient.get(u, headers: h).timeout(timeout);
     }
   }
 
@@ -128,7 +159,27 @@ class Repo {
   }
 
   /// Liefert Library aus Speicher, Disk-Cache (wenn jünger als Einstellung) oder Netz.
-  static Future<Library> load(Source s, {bool force = false}) => withHttpFallback(s, () => _load(s, force: force));
+  static final _loading = <String, Future<Library>>{};
+  static final _refreshing = <String>{};
+
+  /// Gleichzeitige Aufrufe (Vorladen beim Start + Öffnen der Liste) laden nur einmal.
+  static Future<Library> load(Source s, {bool force = false}) {
+    if (!force && _mem[s.id] != null) return SynchronousFuture(_mem[s.id]!);
+    final key = '${s.id}|$force';
+    return _loading[key] ??= withHttpFallback(s, () => _load(s, force: force)).whenComplete(() {
+      _loading.remove(key); // kein Rückgabewert: whenComplete würde sonst auf sich selbst warten
+    });
+  }
+
+  /// Schon geladen (Speicher), ohne etwas anzustoßen.
+  static Library? loaded(Source s) => _mem[s.id];
+
+  /// Beim App-Start: Liste der zuletzt genutzten Quelle schon aus dem Cache lesen, während Startbild
+  /// und Startseite erscheinen. Öffnet man sie, ist sie sofort da.
+  static void preload(Source s) {
+    if (s.type == SourceType.stalker) return; // braucht Anmeldung: erst beim Öffnen
+    load(s).ignore();
+  }
 
   static Future<Library> _load(Source s, {bool force = false}) async {
     if (!force && _mem[s.id] != null) return _mem[s.id]!;
@@ -140,11 +191,15 @@ class Repo {
     final f = await _cacheFile(s);
     if (!force && await f.exists()) {
       try {
-        final (items, epg) = await compute(_decode, await f.readAsString());
+        // Lesen und Dekodieren im Hintergrund-Isolate: der große Text muss nicht erst in den UI-Thread
+        final (items, epg) = await compute(_readCache, f.path);
         final lib = _mem[s.id] = Library(items, epgUrl: epg);
         // Abgelaufen: sofort den Cache zeigen, im Hintergrund neu laden (nächstes Öffnen ist aktuell)
-        if (DateTime.now().difference(await f.lastModified()) > Duration(hours: store.cacheHours)) {
-          _fetch(s, f).catchError((_) => lib);
+        if (DateTime.now().difference(await f.lastModified()) > Duration(hours: store.cacheHours) &&
+            _refreshing.add(s.id)) {
+          _fetch(s, f).catchError((_) => lib).whenComplete(() {
+            _refreshing.remove(s.id);
+          });
         }
         return lib;
       } catch (_) {/* kaputter Cache: neu laden */}
@@ -166,12 +221,15 @@ class Repo {
       SourceType.stalker => throw StateError('unreachable'),
     };
     if (s.type == SourceType.xtream) epg = _api(s).replaceFirst('player_api.php', 'xmltv.php');
-    await f.writeAsString(await compute(_encode, (items, epg)));
-    return _mem[s.id] = Library(items, epgUrl: epg);
+    // Kodieren und Schreiben im Isolate; nicht darauf warten: die Liste ist schon da
+    final lib = _mem[s.id] = Library(items, epgUrl: epg);
+    compute(_writeCache, (f.path, items, epg)).catchError((_) {});
+    return lib;
   }
 
   static Future<void> clearCache() async {
     _mem.clear();
+    _apiCache.clear();
     final dir = await getApplicationSupportDirectory();
     for (final f in dir.listSync()) {
       if (f is File && f.path.contains('cache_')) await f.delete();
@@ -185,8 +243,10 @@ class Repo {
   /// Episoden einer Serie, je nach Quelle.
   static Future<List<Episode>> episodes(Source s, MediaItem m) async => switch (s.type) {
         _ when m.episodes != null => m.episodes!,
-        SourceType.stalker => _stalkerEpisodes(s, m),
-        _ => xtreamEpisodes(s, m.id),
+        SourceType.stalker => _cached('eps|${s.id}|${m.id}', const Duration(minutes: 30), () => _stalkerEpisodes(s, m)),
+        SourceType.xtream => xtreamEpisodes(s, m.id),
+        // M3U: Verlauf/Favoriten speichern die Folgen nicht mit, sie stehen in der Playlist
+        _ => (await load(s)).of(Kind.series).where((x) => x.id == m.id).firstOrNull?.episodes ?? const [],
       };
 
   // ---------------- Stalker-Portal (MAG / Ministra) ----------------
@@ -419,7 +479,11 @@ class Repo {
       '&password=${Uri.encodeQueryComponent(s.pass)}${action.isEmpty ? '' : '&action=$action'}';
 
   /// Kontoinfo (Status, Ablaufdatum, Verbindungen). Wirft bei falschen Zugangsdaten.
-  static Future<Map<String, dynamic>> xtreamAccount(Source s) => withHttpFallback(s, () => _xtreamAccount(s));
+  static Future<Map<String, dynamic>> xtreamAccount(Source s, {bool fresh = false}) {
+    final key = 'acc|${s.id}|${s.url}|${s.user}|${s.pass}';
+    if (fresh) _apiCache.remove(key);
+    return _cached(key, const Duration(minutes: 5), () => withHttpFallback(s, () => _xtreamAccount(s)));
+  }
 
   static Future<Map<String, dynamic>> _xtreamAccount(Source s) async {
     final j = _json(await _get(_api(s)));
@@ -448,8 +512,11 @@ class Repo {
     return items;
   }
 
-  static Future<List<Episode>> xtreamEpisodes(Source s, String seriesId) async {
-    final j = _json(await _get('${_api(s, 'get_series_info')}&series_id=$seriesId'));
+  static Future<List<Episode>> xtreamEpisodes(Source s, String seriesId) =>
+      _cached('eps|${s.id}|$seriesId', const Duration(minutes: 30), () => _xtreamEpisodes(s, seriesId));
+
+  static Future<List<Episode>> _xtreamEpisodes(Source s, String seriesId) async {
+    final j = _json(await _seriesInfo(s, seriesId));
     final eps = <Episode>[];
     // Serie ohne Folgen kommt als [] statt {…}; Staffeln als Liste oder als {"0": {…}}
     final map = j is Map ? j['episodes'] : null;
@@ -475,10 +542,17 @@ class Repo {
 
   /// Film- oder Serien-Details (Handlung, Genre, Besetzung, Backdrop).
   static Future<Map<String, dynamic>> xtreamInfo(Source s, MediaItem m) async {
-    final q = m.kind == Kind.movie ? 'get_vod_info&vod_id=${m.id}' : 'get_series_info&series_id=${m.id}';
-    final j = _json(await _get(_api(s, q)));
+    // Serie: dieselbe Antwort wie für die Folgen, nur einmal laden
+    final text = m.kind == Kind.movie
+        ? await _cached('vod|${s.id}|${m.id}', const Duration(minutes: 30), () => _get(_api(s, 'get_vod_info&vod_id=${m.id}')))
+        : await _seriesInfo(s, m.id);
+    final j = _json(text);
     return j is Map && j['info'] is Map ? Map<String, dynamic>.from(j['info']) : {};
   }
+
+  /// get_series_info liefert Details und Folgen zusammen: Detailseite braucht beides, eine Anfrage reicht.
+  static Future<String> _seriesInfo(Source s, String id) =>
+      _cached('series|${s.id}|$id', const Duration(minutes: 30), () => _get('${_api(s, 'get_series_info')}&series_id=$id'));
 
   /// Catch-up (Xtream timeshift): vergangene Sendung eines Rückschau-Senders.
   static String catchupUrl(Source s, MediaItem ch, DateTime start, DateTime stop) {
@@ -489,8 +563,10 @@ class Repo {
   }
 
   /// Aktuelle + nächste Sendung (EPG) für einen Live-Sender.
-  static Future<List<({String title, DateTime start, DateTime end})>> xtreamEpg(
-      Source s, String streamId) async {
+  static Future<List<({String title, DateTime start, DateTime end})>> xtreamEpg(Source s, String streamId) =>
+      _cached('epg|${s.id}|$streamId', const Duration(minutes: 3), () => _xtreamEpg(s, streamId));
+
+  static Future<List<({String title, DateTime start, DateTime end})>> _xtreamEpg(Source s, String streamId) async {
     final r = _json(await _get('${_api(s, 'get_short_epg')}&stream_id=$streamId&limit=3'));
     final j = r is Map ? r : const {};
     String b64(dynamic v) {
@@ -521,6 +597,16 @@ Map<Kind, List<MediaItem>> _parseM3u((String, bool) a) => parseM3u(a.$1, liveOnl
 
 String _encode((Map<Kind, List<MediaItem>>, String?) a) =>
     jsonEncode({for (final e in a.$1.entries) '${e.key.index}': e.value, 'epg': a.$2});
+
+/// Im Isolate: Cache schreiben (erst in eine Hilfsdatei, dann umbenennen: nie halb geschriebene Caches).
+Future<void> _writeCache((String, Map<Kind, List<MediaItem>>, String?) a) async {
+  final tmp = File('${a.$1}.tmp');
+  await tmp.writeAsString(_encode((a.$2, a.$3)), flush: true);
+  await tmp.rename(a.$1);
+}
+
+/// Im Isolate: Cache lesen und dekodieren.
+Future<(Map<Kind, List<MediaItem>>, String?)> _readCache(String path) async => _decode(await File(path).readAsString());
 
 (Map<Kind, List<MediaItem>>, String?) _decode(String s) {
   final j = jsonDecode(s) as Map;

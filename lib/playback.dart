@@ -92,6 +92,9 @@ abstract class Engine {
   Future<void> setVolume(double v); // 0..1
   Future<List<Track>> audioTracks();
   Future<void> selectAudio(String id);
+
+  /// Laufende Tonspur (null = unbekannt).
+  Future<String?> currentAudio() async => audioId;
   Future<List<Track>> subtitleTracks();
   Future<void> selectSubtitle(String id);
 
@@ -362,14 +365,54 @@ class ExoEngine extends Engine {
   @override
   Future<void> setVolume(double v) async => _c?.setVolume(v.clamp(0, 1).toDouble());
 
+  /// Kurzname des Tonformats aus dem Codec-String („ac-3“, „mp4a.40.2“ …).
+  static String? _codec(String? c) {
+    final s = (c ?? '').toLowerCase();
+    if (s.isEmpty) return null;
+    if (s.contains('ec-3') || s.contains('eac3')) return 'Dolby Digital+';
+    if (s.contains('ac-3') || s.contains('ac3')) return 'Dolby Digital';
+    if (s.contains('truehd') || s.contains('mlp')) return 'TrueHD';
+    if (s.contains('dts')) return 'DTS';
+    if (s.contains('mp4a') || s.contains('aac')) return 'AAC';
+    if (s.contains('opus')) return 'Opus';
+    if (s.contains('mp3') || s.contains('mpeg')) return 'MP3';
+    return null;
+  }
+
+  static String? _channels(int? n) => switch (n) {
+        null || <= 0 => null,
+        1 => 'Mono',
+        2 => 'Stereo',
+        6 => '5.1',
+        8 => '7.1',
+        _ => '$n ch',
+      };
+
   @override
   Future<List<Track>> audioTracks() async {
     final c = _c;
     if (c == null) return [];
-    return [
-      for (final t in await c.getAudioTracks())
-        (id: t.id, label: [t.label, t.language].whereType<String>().where((s) => s.isNotEmpty).join(' · ')),
-    ];
+    final tracks = await c.getAudioTracks();
+    final out = <Track>[];
+    for (final (i, t) in tracks.indexed) {
+      final name = [t.label, t.language?.toUpperCase()].whereType<String>().where((s) => s.isNotEmpty).toSet().join(' · ');
+      // Gleiche Sprache mehrfach (Stereo und 5.1, AAC und Dolby): Format dazuschreiben, sonst sind sie nicht unterscheidbar
+      final extra = [_channels(t.channelCount), _codec(t.codec)].whereType<String>().join(' ');
+      final label = [if (name.isNotEmpty) name else tr('Spur {0}', [i + 1]), if (extra.isNotEmpty) extra].join(' · ');
+      out.add((id: t.id, label: label));
+    }
+    return out;
+  }
+
+  @override
+  Future<String?> currentAudio() async {
+    final c = _c;
+    if (c == null) return audioId;
+    try {
+      return (await c.getAudioTracks()).where((t) => t.isSelected).firstOrNull?.id ?? audioId;
+    } catch (_) {
+      return audioId;
+    }
   }
 
   @override
@@ -553,6 +596,9 @@ class MpvEngine extends Engine {
     // Live-Streams kommen nur in Echtzeit: erst 2 s puffern, sonst läuft der Puffer bei jeder Schwankung leer (Ruckeln)
     await set('cache-pause-initial', 'yes');
     await set('cache-pause-wait', '2');
+    // Höchstens 60 s im Voraus laden (Standard: 1 Stunde bzw. bis der Puffer voll ist): Filme laufen genauso
+    // flüssig, der Server muss aber nicht in einem Stoß Hunderte MB liefern und Spulen verwirft weniger
+    await set('cache-secs', '60');
     final a = Engine.langs('audioLang'), s = Engine.langs('subLang');
     if (a.isNotEmpty) await set('alang', a.join(','));
     if (s.isNotEmpty) await set('slang', s.join(','));
@@ -657,8 +703,13 @@ class MpvEngine extends Engine {
   @override
   Future<void> selectAudio(String id) async {
     audioId = id;
-    await _p.setAudioTrack(_p.state.tracks.audio.firstWhere((t) => t.id == id));
+    // Spuren können sich bei Live-Sendern ändern: verschwundene Spur ignorieren statt abzustürzen
+    final t = _p.state.tracks.audio.where((t) => t.id == id).firstOrNull;
+    if (t != null) await _p.setAudioTrack(t);
   }
+
+  @override
+  Future<String?> currentAudio() async => _p.state.track.audio.id;
 
   @override
   Future<List<Track>> subtitleTracks() async =>
@@ -667,7 +718,8 @@ class MpvEngine extends Engine {
   @override
   Future<void> selectSubtitle(String id) async {
     subtitleId = id;
-    await _p.setSubtitleTrack(_p.state.tracks.subtitle.firstWhere((t) => t.id == id));
+    final t = _p.state.tracks.subtitle.where((t) => t.id == id).firstOrNull;
+    if (t != null) await _p.setSubtitleTrack(t);
   }
 
   @override

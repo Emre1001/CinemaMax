@@ -121,7 +121,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
         Tab.mine => MineView(source: widget.source, lib: _lib!),
         Tab.guide => GuideView(source: widget.source, lib: _lib!),
         Tab.search => SearchView(source: widget.source, lib: _lib!),
-        Tab.settings => const SettingsBody(),
+        Tab.settings => const SettingsBody(focusOnOpen: true),
         Tab.downloads => const DownloadsView(),
         Tab.more => MoreView(
             source: widget.source,
@@ -258,6 +258,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
           autofocus: t == _tab,
           onSelect: () => setState(() => _tab = t),
         );
+    // Seitenleiste liegt über dem Inhalt und klappt darüber auf: der Inhalt behält seine Breite. Vorher
+    // wurde er bei jedem Betreten/Verlassen der Leiste neu angeordnet (ruckelt auf TV-Boxen) und die
+    // Einstellungen sprangen zwischen Handy- und TV-Ansicht, wobei die Fernbedienung den Fokus verlor.
+    final open = _navOpen || !tv;
+    final rail = tv ? 84.0 : 228.0;
     return PopScope(
       canPop: _navFocus.hasFocus || !tv,
       onPopInvokedWithResult: (didPop, _) {
@@ -265,54 +270,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
       },
       child: Scaffold(
         // Tablet / Handy quer: Leiste und Inhalt frei von Statusleiste und Kamera-Ausschnitt
-        body: SafeArea(child: Row(children: [
-          Focus(
-            focusNode: _navFocus,
-            onFocusChange: (v) {
-              setState(() => _navOpen = v);
-              // Fernbedienung: mit „Links“ in die Leiste landet man sonst auf dem nächstgelegenen Eintrag
-              // (z. B. Downloads) und wechselt ungewollt den Bereich: immer beim aktiven Bereich ankommen
-              if (v && tv && !_navNodes[_tab]!.hasPrimaryFocus) _navNodes[_tab]!.requestFocus();
-            },
-            child: AnimatedContainer(
-              duration: store.anim,
-              curve: Curves.easeOutCubic,
-              width: _navOpen || !tv ? 228 : 84,
-              color: surface,
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(
-                  height: 40,
-                  child: ClipRect(
-                    child: OverflowBox(
-                      alignment: Alignment.centerLeft,
-                      maxWidth: 220,
-                      child: Padding(
-                          padding: const EdgeInsets.only(left: 12), child: Wordmark(compact: !(_navOpen || !tv))),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // Fernseher haben meist nur 540 logische Pixel Höhe: Bereiche scrollen statt abschneiden
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      for (final t in navItems)
-                        if (t != Tab.settings) item(t),
-                    ]),
-                  ),
-                ),
-                item(Tab.settings),
-                _NavItem(
-                  icon: Icons.swap_horiz_rounded,
-                  label: tr('Server wechseln'),
-                  expanded: _navOpen || !tv,
-                  onSelect: () => Navigator.pop(context),
-                ),
-              ]),
-            ),
-          ),
-          Expanded(
+        body: SafeArea(child: Stack(children: [
+          Positioned.fill(
+            left: rail,
             child: Column(children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(32, 22, 24, 0),
@@ -320,14 +280,72 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   Text(tr(_tabInfo[_tab]!.$1),
                       style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -.8)),
                   const SizedBox(width: 14),
-                  Text(widget.source.name, style: TextStyle(color: textDim, fontSize: 14)),
-                  const Spacer(),
+                  // Lange Namen („IPTV · Großbritannien“) kürzen statt die Zeile zu sprengen
+                  Expanded(
+                    child: Text(widget.source.name,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: textDim, fontSize: 14)),
+                  ),
                   if (_tab != Tab.settings) ..._actions(),
                   if (store.get('clock', true)) const Padding(padding: EdgeInsets.only(left: 12), child: Clock()),
                 ]),
               ),
               Expanded(child: FocusTraversalGroup(child: _content(_tab))),
             ]),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Focus(
+              focusNode: _navFocus,
+              onFocusChange: (v) {
+                setState(() => _navOpen = v);
+                // Fernbedienung: mit „Links“ in die Leiste landet man sonst auf dem nächstgelegenen Eintrag
+                // (z. B. Downloads) und wechselt ungewollt den Bereich: immer beim aktiven Bereich ankommen
+                if (v && tv && !_navNodes[_tab]!.hasPrimaryFocus) _navNodes[_tab]!.requestFocus();
+              },
+              child: AnimatedContainer(
+                duration: store.anim,
+                curve: Curves.easeOutCubic,
+                width: open ? 228 : 84,
+                decoration: BoxDecoration(
+                  color: surface,
+                  boxShadow: tv && _navOpen
+                      ? [BoxShadow(color: Colors.black.withValues(alpha: isLight ? .15 : .5), blurRadius: 30)]
+                      : null,
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(
+                    height: 40,
+                    child: ClipRect(
+                      child: OverflowBox(
+                        alignment: Alignment.centerLeft,
+                        maxWidth: 220,
+                        child: Padding(padding: const EdgeInsets.only(left: 12), child: Wordmark(compact: !open)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Fernseher haben meist nur 540 logische Pixel Höhe: Bereiche scrollen statt abschneiden
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        for (final t in navItems)
+                          if (t != Tab.settings) item(t),
+                      ]),
+                    ),
+                  ),
+                  item(Tab.settings),
+                  _NavItem(
+                    icon: Icons.swap_horiz_rounded,
+                    label: tr('Server wechseln'),
+                    expanded: open,
+                    onSelect: () => Navigator.pop(context),
+                  ),
+                ]),
+              ),
+            ),
           ),
         ])),
       ),
@@ -383,14 +401,19 @@ class _NavItem extends StatelessWidget {
                 const SizedBox(width: 14),
                 Icon(icon ?? _tabInfo[tab]!.$2, size: 22, color: selected ? accent : ink(.7)),
                 const SizedBox(width: 16),
-                AnimatedOpacity(
-                  opacity: expanded ? 1 : 0,
-                  duration: store.anim,
-                  child: Text(label ?? tr(_tabInfo[tab]!.$1),
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected ? fg : ink(.7))),
+                Flexible(
+                  child: AnimatedOpacity(
+                    opacity: expanded ? 1 : 0,
+                    duration: store.anim,
+                    child: Text(label ?? tr(_tabInfo[tab]!.$1),
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            color: selected ? fg : ink(.7))),
+                  ),
                 ),
               ]),
             ),
@@ -401,16 +424,42 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-class Clock extends StatelessWidget {
+class Clock extends StatefulWidget {
   const Clock({super.key});
 
   @override
-  Widget build(BuildContext context) => StreamBuilder(
-        stream: Stream.periodic(const Duration(seconds: 15)),
-        builder: (c, _) => Text(
-          TimeOfDay.now().format(c),
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, fontFeatures: [FontFeature.tabularFigures()]),
-        ),
+  State<Clock> createState() => _ClockState();
+}
+
+/// Uhr: aktualisiert sich genau zum Minutenwechsel (vorher alle 15 s und bei jedem Neuaufbau ein neuer Takt).
+class _ClockState extends State<Clock> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
+  }
+
+  void _schedule() {
+    final now = DateTime.now();
+    _t = Timer(Duration(seconds: 60 - now.second, milliseconds: -now.millisecond + 50), () {
+      if (!mounted) return;
+      setState(() {});
+      _schedule();
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Text(
+        TimeOfDay.now().format(context),
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, fontFeatures: [FontFeature.tabularFigures()]),
       );
 }
 
@@ -495,7 +544,7 @@ class _ContentViewState extends State<ContentView> {
     }
     final counts = <String, int>{};
     for (final g in _groups) {
-      final p = splitGroup(g).prefix;
+      final p = _prefixOf(g);
       if (p != null) counts[p] = (counts[p] ?? 0) + 1;
     }
     // Filter nur anbieten, wenn es wirklich mehrere Präfixe gibt
@@ -508,8 +557,11 @@ class _ContentViewState extends State<ContentView> {
     _fetch(_sel);
   }
 
-  List<String> get _visibleGroups =>
-      _prefix == null ? _groups : _groups.where((g) => splitGroup(g).prefix == _prefix).toList();
+  // Präfix je Kategorie einmal bestimmen statt für jeden Eintrag (Regex bei 100 000 Filmen spürbar)
+  final _prefixCache = <String, String?>{};
+  String? _prefixOf(String g) => _prefixCache.putIfAbsent(g, () => splitGroup(g).prefix);
+
+  List<String> get _visibleGroups => _prefix == null ? _groups : _groups.where((g) => _prefixOf(g) == _prefix).toList();
 
   int _count(String g) => switch (g) {
         _fav => store.favsOf(widget.source, widget.kind).length,
@@ -520,7 +572,7 @@ class _ContentViewState extends State<ContentView> {
   List<MediaItem> _computeItems() {
     if (_sel == _fav) return store.favsOf(widget.source, widget.kind);
     bool ok(MediaItem m) =>
-        (!store.hideAdult || !isAdult(m.group)) && (_prefix == null || splitGroup(m.group).prefix == _prefix);
+        (!store.hideAdult || !isAdult(m.group)) && (_prefix == null || _prefixOf(m.group) == _prefix);
     if (_lazy) return sorted((_lazyItems[_sel] ?? const []).where(ok).toList());
     if (_sel == _recent) {
       return ([...widget.lib.of(widget.kind).where(ok)]..sort((a, b) => b.added.compareTo(a.added))).take(200).toList();
@@ -535,7 +587,7 @@ class _ContentViewState extends State<ContentView> {
       _sel = g;
       _itemsCache = null;
     });
-    store.set('lastGroup_$_key', g);
+    store.set('lastGroup_$_key', g, notify: false);
     // Verzögert laden: beim Durchscrollen der Kategorien am TV nicht jede abrufen
     _lazyTimer?.cancel();
     _lazyTimer = Timer(const Duration(milliseconds: 350), () => _fetch(g));
@@ -559,7 +611,7 @@ class _ContentViewState extends State<ContentView> {
       _itemsCache = null;
       if (_sel != _all && _sel != _fav && _sel != _recent && !_visibleGroups.contains(_sel)) _sel = _all;
     });
-    store.set('prefix_$_key', p ?? '');
+    store.set('prefix_$_key', p ?? '', notify: false);
   }
 
   String _label(String g) => switch (g) {
@@ -589,24 +641,56 @@ class _ContentViewState extends State<ContentView> {
     if (g != null) _select(g);
   }
 
-  Widget _prefixBar() => SizedBox(
-        height: 44,
-        child: FocusTraversalGroup(
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            clipBehavior: Clip.none,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            children: [
-              Pill(tr('Alle'), selected: _prefix == null, onTap: () => _setPrefix(null)),
-              for (final p in _prefixes.keys)
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Pill(p, selected: _prefix == p, onTap: () => _setPrefix(p)),
-                ),
-            ],
-          ),
+  /// Länder-/Sprachfilter. Wenige Präfixe: Pillen zum Durchblättern. Viele (große Anbieter haben 30+ Länder):
+  /// ein Knopf mit Auswahlliste. Die Pillenleiste war dann mit der Fernbedienung kaum bedienbar und
+  /// zeichnete über den Rand in das Raster.
+  Widget _prefixBar() {
+    if (_prefixes.length > 6) {
+      return Tap(
+        radius: 12,
+        scale: 1.02,
+        onTap: () async {
+          const all = '\u0000';
+          final p = await pick<String>(context, tr('Land / Sprache'), {
+            all: tr('Alle · {0}', [_groups.length]),
+            for (final e in _prefixes.entries) e.key: '${e.key} · ${e.value}',
+          }, current: _prefix ?? all);
+          if (p != null && mounted) _setPrefix(p == all ? null : p);
+        },
+        child: Container(
+          color: surface2,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          child: Row(children: [
+            Icon(Icons.public, size: 18, color: store.accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(_prefix == null ? tr('Alle Länder · {0}', [_prefixes.length]) : _prefix!,
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            const Icon(Icons.expand_more_rounded, size: 20),
+          ]),
         ),
       );
+    }
+    return SizedBox(
+      height: 44,
+      child: FocusTraversalGroup(
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          clipBehavior: Clip.hardEdge,
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+          children: [
+            Pill(tr('Alle'), selected: _prefix == null, onTap: () => _setPrefix(null)),
+            for (final p in _prefixes.keys)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Pill(p, selected: _prefix == p, onTap: () => _setPrefix(p)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -999,8 +1083,15 @@ class MineView extends StatelessWidget {
   final Library lib;
   const MineView({super.key, required this.source, required this.lib});
 
+  static final _topCache = Expando<Map<String, List<MediaItem>>>();
+
   /// Neueste (falls Datum bekannt) bzw. am besten bewertete Einträge, ohne Erwachsenen-Kategorien.
-  List<MediaItem> _top(Kind k, {bool rating = false}) {
+  /// Zwischengespeichert je Bibliothek: sonst wird bei jeder Store-Änderung (auch alle 15 s beim
+  /// Speichern des Fortschritts) die ganze Film-Liste neu sortiert.
+  List<MediaItem> _top(Kind k, {bool rating = false}) =>
+      (_topCache[lib] ??= {})['${k.index}|$rating|${store.hideAdult}'] ??= _computeTop(k, rating: rating);
+
+  List<MediaItem> _computeTop(Kind k, {bool rating = false}) {
     final l = lib.of(k).where((m) => !store.hideAdult || !isAdult(m.group)).toList();
     if (rating) {
       double r(MediaItem m) => double.tryParse(m.rating ?? '') ?? 0;

@@ -70,14 +70,23 @@ class EpgStore extends ChangeNotifier {
     });
   }
 
+  /// Programmführer gilt 24 h (enthält 36 h im Voraus): XMLTV-Dateien sind oft 50–200 MB groß.
+  static const _maxAge = Duration(hours: 24);
+
   Future<void> _load(Source s, Library lib, bool force) async {
     final dir = await getApplicationSupportDirectory();
     final cache = File('${dir.path}/epg_${s.id}.json');
-    if (!force && await cache.exists() && DateTime.now().difference(await cache.lastModified()).inHours < 12) {
-      try {
-        _data[s.id] = await compute(_decode, await cache.readAsString());
-        return;
-      } catch (_) {/* neu laden */}
+    DateTime? cachedAt;
+    if (await cache.exists()) {
+      cachedAt = await cache.lastModified();
+      if (!force) {
+        try {
+          // Sofort anzeigen, auch wenn er älter ist; aktualisiert wird danach im Hintergrund
+          _data[s.id] = await compute(_readCache, cache.path);
+          if (DateTime.now().difference(cachedAt) < _maxAge) return;
+          notifyListeners();
+        } catch (_) {/* neu laden */}
+      }
     }
     // Rückschau-Sender behalten mehr Vergangenheit (für Catch-up)
     final keep = <String, int>{
@@ -91,8 +100,15 @@ class EpgStore extends ChangeNotifier {
       try {
         // Kodi-Header am EPG-Link erlaubt; Server, die nie antworten, blockieren sonst den Programmführer
         final (url, headers) = Engine.splitHeaders(lib.epgUrl!, Repo.headers);
-        final res = await client.send(http.Request('GET', Uri.parse(url))..headers.addAll(headers))
-            .timeout(const Duration(seconds: 60));
+        // Unveränderte Datei nicht erneut herunterladen (304): spart dem Server bis zu 200 MB
+        final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);
+        if (cachedAt != null && _data[s.id]?.isNotEmpty == true) req.headers['If-Modified-Since'] = HttpDate.format(cachedAt);
+        final res = await client.send(req).timeout(const Duration(seconds: 60));
+        if (res.statusCode == 304) {
+          await cache.setLastModified(DateTime.now());
+          errors.remove(s.id);
+          return;
+        }
         if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
         await res.stream.pipe(tmp.openWrite()); // auf Platte streamen statt ins RAM
       } finally {
@@ -100,16 +116,21 @@ class EpgStore extends ChangeNotifier {
       }
       final parsed = await compute(_parseFile, (tmp.path, keep));
       _data[s.id] = parsed;
-      await cache.writeAsString(await compute(_encode, parsed));
+      await compute(_writeCache, (cache.path, parsed));
       errors.remove(s.id);
     } catch (e) {
       errors[s.id] = '$e';
-      _data[s.id] = {};
+      // Älteren Programmführer behalten, statt ihn bei einem Netzfehler wegzuwerfen
+      _data.putIfAbsent(s.id, () => {});
     } finally {
       if (await tmp.exists()) await tmp.delete();
     }
   }
 }
+
+Future<Map<String, List<Prog>>> _readCache(String path) async => _decode(await File(path).readAsString());
+
+Future<void> _writeCache((String, Map<String, List<Prog>>) a) => File(a.$1).writeAsString(_encode(a.$2));
 
 String _encode(Map<String, List<Prog>> d) => jsonEncode({for (final e in d.entries) e.key: e.value});
 

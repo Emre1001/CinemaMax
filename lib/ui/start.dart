@@ -42,8 +42,8 @@ Source iptvSource() {
 }
 
 void openSource(BuildContext c, Source s, {bool replace = false}) {
-  store.set('lastMode', s.type == SourceType.iptv ? 'iptv' : 'own');
-  store.set('lastSource', s.id);
+  store.set('lastMode', s.type == SourceType.iptv ? 'iptv' : 'own', notify: false);
+  store.set('lastSource', s.id, notify: false);
   final route = MaterialPageRoute(builder: (_) => BrowseScreen(source: s));
   replace ? Navigator.pushReplacement(c, route) : Navigator.push(c, route);
 }
@@ -678,7 +678,7 @@ class _SourceEditorState extends State<SourceEditor> {
     try {
       if (type == SourceType.xtream) {
         try {
-          await Repo.xtreamAccount(s);
+          await Repo.xtreamAccount(s, fresh: true);
         } catch (_) {
           // Manche Anbieter erlauben nur die Playlist (get.php), nicht die Xtream-API: dann als M3U
           if (_type != SourceType.m3u) rethrow;

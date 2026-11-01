@@ -207,7 +207,7 @@ List<_Cat> get _cats => [
     _Opt('iptvCountry', 'IPTV-Land', 'de', options: Map<Object, String>.from(iptvCountries)),
   ]),
   _Cat('Start', 'Startbildschirm, Animation, Updates', Icons.rocket_launch_outlined, [
-    const _Opt('intro', 'Startanimation', true),
+    const _Opt('intro', 'Startanimation', false, hint: 'Aus: App öffnet sofort'),
     const _Opt('introSound', 'Startton', true),
     const _Opt('askOnStart', 'Beim Start Modus wählen', true, hint: 'Aus: letzte Quelle direkt öffnen'),
     const _Opt('startTab', 'Startbereich', 'mine',
@@ -248,7 +248,9 @@ class SettingsScreen extends StatelessWidget {
 }
 
 class SettingsBody extends StatefulWidget {
-  const SettingsBody({super.key});
+  /// Fokus beim Öffnen gleich in die Kategorien legen (aus der TV-Seitenleiste mit OK geöffnet).
+  final bool focusOnOpen;
+  const SettingsBody({super.key, this.focusOnOpen = false});
 
   @override
   State<SettingsBody> createState() => _SettingsBodyState();
@@ -260,6 +262,16 @@ class _SettingsBodyState extends State<SettingsBody> {
   // Flutter würde sonst nach Höhe die Kategorie daneben wählen und dabei den Inhalt wechseln.
   final _catNodes = [for (final _ in _cats) FocusNode()];
   final _first = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.focusOnOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _catNodes[_sel].context != null) _catNodes[_sel].requestFocus();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -278,18 +290,35 @@ class _SettingsBodyState extends State<SettingsBody> {
     return KeyEventResult.handled;
   }
 
+  /// Fokus kommt von außen in die Kategorienliste (z. B. Pfeil rechts aus der Seitenleiste): Flutter wählt
+  /// die Kategorie auf gleicher Höhe, wir wollen die gewählte. Sonst springt der Inhalt rechts um.
+  void _enterCats(bool has) {
+    if (has && !_catNodes[_sel].hasPrimaryFocus && _catNodes[_sel].context != null) _catNodes[_sel].requestFocus();
+  }
+
+  /// Kategorie beim Darüberfahren zeigen, erst nach dem Bild: beim Betreten lenkt [_enterCats] den Fokus um.
+  void _focusCat(int i, bool f) {
+    if (!f) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _sel != i && _catNodes[i].hasPrimaryFocus) setState(() => _sel = i);
+    });
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: Listenable.merge([store, downloads]),
         builder: (context, _) => LayoutBuilder(builder: (context, box) {
-          // Schmal (Handy): Kategorien als Liste, Inhalt auf eigener Seite
-          if (box.maxWidth < 760) return _catList(context, narrow: true);
+          // Schmal (Handy): Kategorien als Liste, Inhalt auf eigener Seite. Fernseher/PC bleiben immer zweispaltig,
+          // auch wenn die Breite kurz schwankt: ein Wechsel mitten in der Bedienung würde den Fokus verlieren
+          final narrow = formFactor(context) == Ff.phone ? box.maxWidth < 760 : box.maxWidth < 520;
+          if (narrow) return _catList(context, narrow: true);
           return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SizedBox(
-              width: 360,
+              width: (box.maxWidth * .4).clamp(240.0, 360.0),
               child: Focus(
                 canRequestFocus: false,
                 skipTraversal: true,
+                onFocusChange: _enterCats,
                 onKeyEvent: (_, e) => _jump(e, LogicalKeyboardKey.arrowRight, () => _first),
                 child: FocusTraversalGroup(child: _catList(context, narrow: false)),
               ),
@@ -316,10 +345,10 @@ class _SettingsBodyState extends State<SettingsBody> {
               child: Tap(
                 fill: true,
                 scale: 1,
-                autofocus: i == 0,
+                autofocus: i == _sel,
                 focusNode: narrow ? null : _catNodes[i],
                 // Fernbedienung/Tastatur: Kategorie beim Darüberfahren rechts zeigen
-                onFocus: narrow ? null : (f) => f && _sel != i ? setState(() => _sel = i) : null,
+                onFocus: narrow ? null : (f) => _focusCat(i, f),
                 onTap: narrow
                     ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => _CatPage(c)))
                     : () => setState(() => _sel = i),
