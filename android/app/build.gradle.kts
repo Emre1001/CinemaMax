@@ -29,11 +29,24 @@ android {
         versionName = flutter.versionName
     }
 
+    // CI (GitHub Actions): mit dem Schlüssel aus den Repository-Secrets signieren, damit die APK sich über
+    // vorhandene Installationen aktualisieren lässt. Lokal ohne CM_KEYSTORE: wie bisher der eigene Debug-Schlüssel.
+    val ciKeystore = System.getenv("CM_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (ciKeystore != null) {
+            create("ci") {
+                storeFile = ciKeystore
+                // Standardwerte des Android-Debug-Schlüssels, falls keine eigenen gesetzt sind
+                storePassword = System.getenv("CM_KEYSTORE_PASSWORD")?.ifEmpty { null } ?: "android"
+                keyAlias = System.getenv("CM_KEY_ALIAS")?.ifEmpty { null } ?: "androiddebugkey"
+                keyPassword = System.getenv("CM_KEY_PASSWORD")?.ifEmpty { null } ?: "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (ciKeystore != null) signingConfigs.getByName("ci") else signingConfigs.getByName("debug")
         }
     }
 }
