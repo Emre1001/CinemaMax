@@ -71,7 +71,9 @@ class Repo {
   static Future<String> _get(String url) async {
     // Playlist als Datei (über „Öffnen mit“ übernommen oder lokal eingetragen)
     final file = localPath(url);
-    if (file != null) return decodeText(await File(file).readAsBytes());
+    if (file != null) {
+      return await FileSystemEntity.isDirectory(file) ? _readFolder(file) : decodeText(await File(file).readAsBytes());
+    }
     // Playlist-Link mit Kodi-Headern („…/liste.m3u|User-Agent=…“)
     final (bare, h) = Engine.splitHeaders(url, headers);
     final u = Uri.parse(bare);
@@ -98,6 +100,31 @@ class Repo {
       if (!'$e'.contains('CERTIFICATE_VERIFY_FAILED')) rethrow;
       return decodeText(await read(_lenient));
     }
+  }
+
+  static final _playlistFile = RegExp(r'\.(m3u8?|xspf|pls|asx)$', caseSensitive: false);
+
+  /// Ordner als Quelle: alle Playlist-Dateien (.m3u, .m3u8, .xspf, .pls, .asx) darin (auch in Unterordnern) als eine Liste. Einträge ohne
+  /// Kategorie landen unter dem Dateinamen (siehe [m3uFolderTag]).
+  static Future<String> _readFolder(String dir) async {
+    final files = [
+      await for (final f in Directory(dir).list(recursive: true, followLinks: false))
+        if (f is File && _playlistFile.hasMatch(f.path)) f,
+    ]..sort((a, b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+    final out = StringBuffer();
+    for (final f in files) {
+      final name = f.uri.pathSegments.last.replaceFirst(_playlistFile, '');
+      try {
+        // Jede Datei für sich umschreiben (XSPF, PLS …): gemischt erkennt der Parser das Format nicht
+        final text = toM3u(decodeText(await f.readAsBytes()));
+        out
+          ..writeln('$m3uFolderTag$name')
+          ..writeln(text);
+      } on FileSystemException {
+        // Einzelne unlesbare Datei: die übrigen trotzdem laden
+      }
+    }
+    return out.toString();
   }
 
   /// Binärdaten statt Text: MPEG-TS-Pakete (0x47 alle 188 Bytes) oder Nullbytes am Anfang (außer gzip).
@@ -237,8 +264,22 @@ class Repo {
   }
 
   /// HTTP-Header für den Stream selbst (Stalker-Portale erwarten MAG-Kennung).
-  static Map<String, String> streamHeaders(Source s) =>
-      s.type == SourceType.stalker ? {'User-Agent': _magUa, 'X-User-Agent': 'Model: MAG250; Link: WiFi'} : headers;
+  static Map<String, String> streamHeaders(Source s) => s.type == SourceType.stalker
+      ? {'User-Agent': _magUa, 'X-User-Agent': 'Model: MAG250; Link: WiFi'}
+      : {'User-Agent': _uaOk[s.id] ?? store.userAgent};
+
+  /// Player-Kennungen, die der Player der Reihe nach versucht, wenn ein Server die eingestellte sperrt.
+  static const userAgents = [
+    'VLC/3.0.20 LibVLC/3.0.20',
+    'okhttp/4.12.0',
+    'IPTVSmartersPlayer',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36',
+  ];
+  static final _uaOk = <String, String>{};
+
+  /// Mit dieser Kennung lief der Stream: bis zum Beenden der App für die Quelle beibehalten, damit nicht
+  /// jeder Senderwechsel erst an der gesperrten Kennung scheitert.
+  static void rememberUserAgent(Source s, String ua) => _uaOk[s.id] = ua;
 
   /// Episoden einer Serie, je nach Quelle.
   static Future<List<Episode>> episodes(Source s, MediaItem m) async => switch (s.type) {

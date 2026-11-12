@@ -366,9 +366,18 @@ class Pill extends StatelessWidget {
   }
 }
 
-void toast(BuildContext c, String msg) => ScaffoldMessenger.of(c)
-  ..hideCurrentSnackBar()
-  ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating, width: 420));
+void toast(BuildContext c, String msg) {
+  // Handy: Abstand zum Rand statt fester Breite (420 ist breiter als der Bildschirm)
+  final narrow = MediaQuery.sizeOf(c).width < 460;
+  ScaffoldMessenger.of(c)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      width: narrow ? null : 420,
+      margin: narrow ? const EdgeInsets.fromLTRB(12, 0, 12, 12) : null,
+    ));
+}
 
 /// Auswahlliste als Dialog, D-Pad-tauglich. Gibt gewählten Wert zurück.
 /// Alle Einträge werden gebaut (nicht erst beim Scrollen): sonst existiert der gewählte Eintrag weit unten

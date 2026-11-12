@@ -287,7 +287,9 @@ class Downloads extends ChangeNotifier {
       d.received = have;
       final sink = f.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
       try {
-        await for (final chunk in res.stream) {
+        // Server schickt nichts mehr, hält die Verbindung aber offen: abbrechen, sonst hängt die ganze
+        // Warteschlange für immer (fortsetzen lädt ab dieser Stelle weiter)
+        await for (final chunk in res.stream.timeout(const Duration(seconds: 60))) {
           sink.add(chunk);
           d.received += chunk.length;
           _save(force: false);

@@ -51,6 +51,12 @@ class _Fake extends Engine {
 }
 
 void main() {
+  test('Weitere Adressen: Xtream-Live im anderen Format, http statt https', () {
+    expect(Engine.alternates('https://h:443/live/u/p/7.ts?t=1'), ['https://h:443/live/u/p/7.m3u8?t=1', 'http://h:443/live/u/p/7.ts?t=1']);
+    expect(Engine.alternates('http://h/live/u/p/7.m3u8'), ['http://h/live/u/p/7.ts']);
+    expect(Engine.alternates('http://h/movie/u/p/7.mkv'), isEmpty);
+  });
+
   test('4K auch bei Kinoformat (3840×1600) erkannt', () {
     expect(Engine.resolution(3840, 2160), '4K');
     expect(Engine.resolution(3840, 1600), '4K');

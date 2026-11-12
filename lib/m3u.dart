@@ -16,6 +16,9 @@ final _seriesGroup = RegExp(r'\b(series|serien?|tv ?shows?|dizi(ler)?|staffel)\b
 final _liveFile = RegExp(r'\.(ts|m3u8?)$', caseSensitive: false);
 final _lineBreak = RegExp(r'\r\n?|\n');
 
+/// Ordner-Quelle: Zeile vor jeder Datei, ihr Name ist die Kategorie für Einträge ohne group-title.
+const m3uFolderTag = '#CINEMAMAX-FILE:';
+
 final _tvgUrl = RegExp(r'(?:url-tvg|x-tvg-url|tvg-url)="([^"]+)"', caseSensitive: false);
 
 /// EPG-Adresse aus dem #EXTM3U-Kopf (erste nur, falls mehrere per Komma).
@@ -25,6 +28,70 @@ String? m3uEpgUrl(String text) {
   final line = head.split('\n').map((l) => l.trim()).firstWhere((l) => l.startsWith('#EXTM3U'), orElse: () => '');
   final m = _tvgUrl.firstMatch(line);
   return m?.group(1)?.split(',').first.trim();
+}
+
+final _xmlTrack = RegExp(r'<(track|entry)\b[^>]*>([\s\S]*?)</\1>', caseSensitive: false);
+final _plsLine = RegExp(r'^(File|Title)(\d+)\s*=\s*(.+)$', caseSensitive: false, multiLine: true);
+
+/// Andere Playlist-Formate in M3U umschreiben: XSPF (VLC), PLS, ASX (Windows Media) und Enigma2-Bouquets.
+/// M3U und Unbekanntes bleiben unverändert.
+String toM3u(String text) {
+  final head = (text.length > 4000 ? text.substring(0, 4000) : text).toLowerCase();
+  String xml(String s) => s
+      .replaceAll(RegExp(r'<!\[CDATA\[|\]\]>'), '')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&apos;', "'")
+      .replaceAll('&amp;', '&')
+      .trim();
+  String? tag(String body, String name) =>
+      RegExp('<$name\\b[^>]*>([\\s\\S]*?)</$name>', caseSensitive: false).firstMatch(body)?.group(1);
+  // Titel ohne Zeilenumbruch, Logo ohne Anführungszeichen: sonst zerfällt die #EXTINF-Zeile
+  String entry(String? title, String url, [String? logo]) =>
+      '#EXTINF:-1${logo == null ? '' : ' tvg-logo="${logo.replaceAll('"', '')}"'},'
+      '${(title ?? '').replaceAll(RegExp(r'\s+'), ' ')}\n$url';
+  final out = <String>['#EXTM3U'];
+
+  if (head.contains('<playlist') && head.contains('<track')) {
+    for (final m in _xmlTrack.allMatches(text)) {
+      final url = tag(m.group(2)!, 'location');
+      if (url == null) continue;
+      final image = tag(m.group(2)!, 'image');
+      out.add(entry(xml(tag(m.group(2)!, 'title') ?? ''), xml(url), image == null ? null : xml(image)));
+    }
+  } else if (head.contains('<asx')) {
+    for (final m in _xmlTrack.allMatches(text)) {
+      final url = RegExp(r'''<ref\b[^>]*href\s*=\s*["']([^"']+)''', caseSensitive: false).firstMatch(m.group(2)!)?.group(1);
+      if (url != null) out.add(entry(xml(tag(m.group(2)!, 'title') ?? ''), xml(url)));
+    }
+  } else if (head.contains('[playlist]')) {
+    final files = <String, String>{}, titles = <String, String>{};
+    for (final m in _plsLine.allMatches(text)) {
+      (m.group(1)!.toLowerCase() == 'file' ? files : titles)[m.group(2)!] = m.group(3)!.trim();
+    }
+    for (final e in files.entries) {
+      out.add(entry(titles[e.key], e.value));
+    }
+  } else if (head.contains('#service ')) {
+    // Enigma2: „#SERVICE 4097:0:1:0:0:0:0:0:0:0:http%3a//host/1.ts:Name“, danach oft „#DESCRIPTION Name“
+    String? group;
+    final lines = text.split(_lineBreak);
+    for (final (i, raw) in lines.indexed) {
+      final line = raw.trim();
+      if (line.startsWith('#NAME ')) group = line.substring(6).trim();
+      if (!line.startsWith('#SERVICE ')) continue;
+      final p = line.substring(9).split(':');
+      if (p.length < 11 || p[10].isEmpty) continue;
+      final next = i + 1 < lines.length ? lines[i + 1].trim() : '';
+      final name = next.startsWith('#DESCRIPTION') ? next.substring(12).replaceFirst(RegExp(r'^[: ]+'), '') : p.skip(11).join(':');
+      if (group != null) out.add('#EXTGRP:$group');
+      out.add(entry(name, _decode(p[10])));
+    }
+  } else {
+    return text;
+  }
+  return out.join('\n');
 }
 
 /// Typ eines Eintrags: Pfad > tvg-type > Episodenmuster > Dateiendung > Kategoriename.
@@ -57,9 +124,10 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
   Map<String, String> attrs = {};
   String? title;
   String? extGroup;
+  String? fileGroup; // Ordner-Quelle: Name der Datei, aus der die Einträge stammen
   final headers = <String, String>{}; // aus #EXTVLCOPT / #EXTHTTP, gilt für den nächsten Link
 
-  for (var line in text.split(_lineBreak)) {
+  for (var line in toM3u(text).split(_lineBreak)) {
     line = line.trim();
     if (line.isEmpty) continue;
     if (line.startsWith('#EXTINF')) {
@@ -72,6 +140,10 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
     }
     if (line.startsWith('#EXTGRP:')) {
       extGroup = line.substring(8).trim();
+      continue;
+    }
+    if (line.startsWith(m3uFolderTag)) {
+      fileGroup = line.substring(m3uFolderTag.length).trim();
       continue;
     }
     // Übrige Kommentarzeilen: Header für den nächsten Link (Regex nur für #-Zeilen, nicht für jeden Link)
@@ -111,7 +183,7 @@ Map<Kind, List<MediaItem>> parseM3u(String text, {bool liveOnly = false}) {
     final name = (title == null || title.isEmpty) ? (attrs['tvg-name'] ?? url) : title;
     final group = attrs['group-title']?.isNotEmpty == true
         ? attrs['group-title']!
-        : (extGroup ?? 'Ohne Kategorie');
+        : (extGroup ?? fileGroup ?? 'Ohne Kategorie');
     final logo = attrs['tvg-logo']?.isNotEmpty == true ? attrs['tvg-logo'] : null;
 
     final kind = liveOnly ? Kind.live : classify(url, name, group, attrs['tvg-type'] ?? attrs['type']);

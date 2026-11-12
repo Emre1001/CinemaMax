@@ -109,8 +109,9 @@ public final class IptvTuning {
             .setExtensionRendererMode(extensions);
     DefaultLoadControl loadControl =
         new DefaultLoadControl.Builder()
-            // min 15 s, max 50 s puffern; nach 1,5 s starten, nach Abriss 3 s
-            .setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
+            // min 15 s, max 50 s puffern; nach 1 s starten (Media3-Standard, Sender sind beim Zappen
+            // eine halbe Sekunde früher da), nach Abriss 3 s
+            .setBufferDurationsMs(15_000, 50_000, 1_000, 3_000)
             // Puffer liegt im Java-Heap: ohne Grenze wächst er bei 4K (40 Mbit/s) auf ~130 MB und
             // sprengt den Heap von TV-Geräten (192 MB) – Absturz. Höchstens ein Viertel des Heaps.
             .setTargetBufferBytes(bufferBytes(Runtime.getRuntime().maxMemory()))
@@ -148,6 +149,9 @@ public final class IptvTuning {
     int max = maxHeight(context);
     // Wie in Dart (Engine.fits): 1/16 Spielraum (1920×1088 = 1080p), Breite wie bei 16:9 (3840×1600 = 4K)
     if (max > 0) params.setMaxVideoSize(max * 17 / 9, max * 17 / 16);
+    // Einstellung „Tunneling“: Bild und Ton laufen direkt im Chip der TV-Box (braucht SurfaceView).
+    // 4K-Sender ruckeln auf schwachen Boxen dann weniger; kann der Stream das nicht, spielt ExoPlayer normal
+    if (setting(context, "tunneling", false)) params.setTunnelingEnabled(true);
     selector.setParameters(params);
     return selector;
   }
@@ -204,7 +208,10 @@ public final class IptvTuning {
     // Ohne FLAG_DETECT_ACCESS_UNITS: IPTV-Streams haben Access-Unit-Delimiter (ffmpeg setzt sie immer),
     // mit dem Flag teilt ExoPlayer jedes Bild doppelt und zeigt nur ein Standbild, während der Ton läuft.
     return new DefaultExtractorsFactory()
-        .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES)
+        // HDMV-DTS: Sender und Filme mit DTS-Ton im Transportstrom blieben sonst stumm
+        .setTsExtractorFlags(
+            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES
+                | DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
         .setConstantBitrateSeekingEnabled(true);
   }
 }

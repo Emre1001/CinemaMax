@@ -100,6 +100,7 @@ Future<void> play(String name, String link,
   try {
     await WidgetsBinding.instance.endOfFrame;
     await e.open(url, headers);
+    await e.setVolume(0); // Testvideos haben einen Dauerton
     Duration? first;
     var steady = 0;
     final live = cases.any((c) => c.$2 == link && c.$3 == LinkKind.live);

@@ -64,6 +64,12 @@ class _Cat {
   const _Cat(this.title, this.summary, this.icon, this.items);
 }
 
+/// Zwischenüberschrift in einer langen Kategorie.
+class _Head {
+  final String title;
+  const _Head(this.title);
+}
+
 /// Aktion mit wechselndem Hinweis (z. B. Anzahl) und optionalem Schalter-Zustand.
 class _Act {
   final String key, label;
@@ -100,6 +106,7 @@ List<_Cat> get _cats => [
     const _Opt('reduceMotion', 'Animationen reduzieren', false, hint: 'Für langsame TV-Boxen'),
   ]),
   _Cat('Player', 'ExoPlayer/mpv, Bildformat, Bedienung', Icons.play_circle_outline_rounded, [
+    const _Head('Player & Kompatibilität'),
     _Opt('engine', 'Player', 'exo',
         hint: 'ExoPlayer: schnell und stabil. mpv: mehr Formate und Untertitel',
         options: {'exo': 'ExoPlayer (empfohlen)', 'mpv': 'mpv'},
@@ -114,6 +121,10 @@ List<_Cat> get _cats => [
     _Opt('autoMpv', 'Bei Fehlern anderen Player versuchen', true,
         hint: 'ExoPlayer und mpv springen füreinander ein (z. B. bei 4K oder DTS-Ton)',
         visible: () => Platform.isAndroid),
+    _Opt('uaFallback', 'Bei Sperre andere Player-Kennung versuchen', true,
+        hint: 'Lehnt ein Server den Stream ab (HTTP 403), probiert die App VLC, okhttp, IPTV Smarters und Browser',
+        visible: () => Platform.isAndroid),
+    const _Head('4K, Bild & Ton'),
     _Opt('ffmpegAudio', 'FFmpeg-Tondecoder', 'on',
         hint: 'Spielt AC3, E-AC3, DTS und TrueHD auch ohne Decoder im Gerät',
         options: {'on': 'Wenn nötig (empfohlen)', 'prefer': 'Immer FFmpeg', 'off': 'Aus'},
@@ -121,10 +132,15 @@ List<_Cat> get _cats => [
     _Opt('surfaceView', 'Videoausgabe SurfaceView', isAndroidTv,
         hint: 'Echtes 4K und richtige HDR-Farben, schneller auf TV-Boxen (Fernseher: an)',
         visible: () => Platform.isAndroid && store.get('engine', 'exo') == 'exo'),
+    _Opt('tunneling', 'Tunneling (4K auf TV-Boxen)', false,
+        hint: 'Bild und Ton laufen direkt im Chip der Box: 4K ruckelt weniger. Aus, wenn das Bild schwarz bleibt',
+        visible: () =>
+            Platform.isAndroid && store.get('engine', 'exo') == 'exo' && store.get('surfaceView', isAndroidTv)),
     const _Opt('hwdec', 'Hardware-Dekodierung', true, hint: 'Aus bei Bildfehlern oder grünem Bild'),
     const _Opt('bufferMb', 'Puffergröße', 64, options: {16: '16 MB', 32: '32 MB', 64: '64 MB', 128: '128 MB', 256: '256 MB'}),
     const _Opt('fit', 'Standard-Bildformat', 'contain', options: {'contain': 'Einpassen', 'original': 'Original (1:1)', 'cover': 'Zoomen', 'fill': 'Strecken', '169': '16:9', '43': '4:3'}),
     const _Opt('deinterlace', 'Deinterlacing', false, hint: 'Für ältere SD-/1080i-Sender'),
+    const _Head('Bedienung'),
     const _Opt('hideSec', 'Bedienleiste ausblenden nach', 5, options: {3: '3 s', 5: '5 s', 8: '8 s', 12: '12 s'}),
     const _Opt('seekStep', 'Spulschritt', 10, options: {5: '5 s', 10: '10 s', 15: '15 s', 30: '30 s', 60: '60 s'}),
     const _Opt('remaining', 'Restzeit statt Gesamtdauer', false),
@@ -136,6 +152,8 @@ List<_Cat> get _cats => [
   _Cat('Live-TV', 'Senderwechsel, Neuverbinden, EPG', Icons.live_tv_rounded, [
     const _Opt('autoReconnect', 'Live automatisch neu verbinden', true),
     const _Opt('zapInvert', 'Senderwechsel umkehren', false, hint: 'Pfeil hoch = nächster Sender'),
+    const _Opt('livePreview', 'Live-Vorschau (Fernseher)', true,
+        hint: 'Der gewählte Sender läuft oben rechts über der Liste. Aus bei schwacher Box'),
     const _Opt('epg', 'Programmführer (EPG) laden', true, hint: 'Zeigt was läuft, TV-Guide und Rückschau'),
     const _Opt('liveFormat', 'Live-Format (Xtream)', 'ts', options: {'ts': 'MPEG-TS (.ts)', 'm3u8': 'HLS (.m3u8)'}),
   ]),
@@ -262,6 +280,28 @@ class _SettingsBodyState extends State<SettingsBody> {
   // Flutter würde sonst nach Höhe die Kategorie daneben wählen und dabei den Inhalt wechseln.
   final _catNodes = [for (final _ in _cats) FocusNode()];
   final _first = FocusNode();
+  final _search = TextEditingController();
+  String _q = '';
+
+  /// Treffer aus allen Kategorien, je Kategorie unter ihrer Überschrift. Jedes Suchwort muss in Name oder
+  /// Hinweis vorkommen.
+  _Cat _found(String q) {
+    final words = q.split(RegExp(r'\s+'));
+    bool hit(String label, String? hint) {
+      final text = '${tr(label)} ${hint ?? ''}'.toLowerCase();
+      return words.every(text.contains);
+    }
+
+    return _Cat('Suche', '', Icons.search_rounded, [
+      for (final c in _cats) ...[
+        _Head(c.title),
+        for (final it in c.items)
+          if (it is _Opt && hit(it.label, it.hint == null ? null : tr(it.hint!)) ||
+              it is _Act && hit(it.label, it.hint?.call()))
+            it,
+      ],
+    ]);
+  }
 
   @override
   void initState() {
@@ -279,6 +319,7 @@ class _SettingsBodyState extends State<SettingsBody> {
       n.dispose();
     }
     _first.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -311,17 +352,51 @@ class _SettingsBodyState extends State<SettingsBody> {
           // Schmal (Handy): Kategorien als Liste, Inhalt auf eigener Seite. Fernseher/PC bleiben immer zweispaltig,
           // auch wenn die Breite kurz schwankt: ein Wechsel mitten in der Bedienung würde den Fokus verlieren
           final narrow = formFactor(context) == Ff.phone ? box.maxWidth < 760 : box.maxWidth < 520;
-          if (narrow) return _catList(context, narrow: true);
+          final q = _q.trim().toLowerCase();
+          final found = q.isEmpty ? null : _found(q);
+          // Über 80 Einstellungen: Suche statt Durchblättern der Kategorien
+          final field = Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+            child: InputBox(
+              controller: _search,
+              onChanged: (v) => setState(() => _q = v),
+              decoration: InputDecoration(
+                hintText: tr('Einstellung suchen'),
+                prefixIcon: const Icon(Icons.search_rounded),
+                isDense: true,
+                suffixIcon: _q.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => setState(() {
+                          _search.clear();
+                          _q = '';
+                        }),
+                      ),
+              ),
+            ),
+          );
+          if (narrow) {
+            return Column(children: [
+              field,
+              Expanded(child: found == null ? _catList(context, narrow: true) : _CatBody(found, reset: false)),
+            ]);
+          }
           return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SizedBox(
               width: (box.maxWidth * .4).clamp(240.0, 360.0),
-              child: Focus(
-                canRequestFocus: false,
-                skipTraversal: true,
-                onFocusChange: _enterCats,
-                onKeyEvent: (_, e) => _jump(e, LogicalKeyboardKey.arrowRight, () => _first),
-                child: FocusTraversalGroup(child: _catList(context, narrow: false)),
-              ),
+              child: Column(children: [
+                field,
+                Expanded(
+                  child: Focus(
+                    canRequestFocus: false,
+                    skipTraversal: true,
+                    onFocusChange: _enterCats,
+                    onKeyEvent: (_, e) => _jump(e, LogicalKeyboardKey.arrowRight, () => _first),
+                    child: FocusTraversalGroup(child: _catList(context, narrow: false)),
+                  ),
+                ),
+              ]),
             ),
             VerticalDivider(width: 1, color: ink(.1)),
             Expanded(
@@ -329,7 +404,11 @@ class _SettingsBodyState extends State<SettingsBody> {
                 canRequestFocus: false,
                 skipTraversal: true,
                 onKeyEvent: (_, e) => _jump(e, LogicalKeyboardKey.arrowLeft, () => _catNodes[_sel]),
-                child: FocusTraversalGroup(child: _CatBody(_cats[_sel], first: _first, key: ValueKey(_sel))),
+                child: FocusTraversalGroup(
+                  child: found == null
+                      ? _CatBody(_cats[_sel], first: _first, key: ValueKey(_sel))
+                      : _CatBody(found, first: _first, reset: false, key: const ValueKey('suche')),
+                ),
               ),
             ),
           ]);
@@ -406,48 +485,93 @@ class _CatPage extends StatelessWidget {
 class _CatBody extends StatelessWidget {
   final _Cat cat;
   final FocusNode? first; // Fokusziel für Pfeil rechts aus der Kategorienliste
-  const _CatBody(this.cat, {this.first, super.key});
+  final bool reset; // „Auf Standard zurücksetzen“ anbieten (nicht in Suchtreffern)
+  const _CatBody(this.cat, {this.first, this.reset = true, super.key});
 
   @override
-  Widget build(BuildContext context) => Align(
-        alignment: Alignment.topLeft,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
-            children: [
-              SectionTitle(tr(cat.title)),
-              for (final (i, it) in cat.items.where((it) => it is! _Opt || (it.visible?.call() ?? true)).indexed)
-                // Gestaffelt einblenden; Schlüssel je Eintrag, damit beim Ein-/Ausblenden nichts neu startet
-                if (it is _Opt)
-                  Rise(i,
-                      key: ValueKey(it.key),
-                      distance: 14,
-                      child: _row(
-                        context,
-                        focusNode: i == 0 ? first : null,
-                        tr(it.label),
-                        it.hint == null ? null : tr(it.hint!),
-                        value: it.options == null
-                            ? null
-                            : tr(it.options![store.get<Object>(it.key, it.def)] ??
-                                (it.key == 'accent' ? hexColor(store.accent) : '—')),
-                        toggle: it.options == null ? store.get<bool>(it.key, it.def as bool) : null,
-                        color: it.key == 'accent' ? store.accent : null,
-                        onTap: () => _change(context, it),
-                      ))
-                else if (it is _Act)
-                  Rise(i,
-                      key: ValueKey(it.key),
-                      distance: 14,
-                      child: _row(context, tr(it.label), it.hint?.call(),
-                          focusNode: i == 0 ? first : null,
-                          toggle: it.toggle?.call(),
-                          onTap: () => _action(context, it.key))),
+  Widget build(BuildContext context) {
+    final visible = cat.items.where((it) => it is! _Opt || (it.visible?.call() ?? true)).toList();
+    // Überschriften ohne Einträge darunter weglassen (auf diesem Gerät ausgeblendet, kein Suchtreffer)
+    final items = [
+      for (final (i, it) in visible.indexed)
+        if (it is! _Head || (i + 1 < visible.length && visible[i + 1] is! _Head)) it,
+    ];
+    final focus = items.indexWhere((it) => it is! _Head);
+    // Geändert = weicht vom Standard ab. Kindersicherung nicht: Zurücksetzen würde die PIN umgehen
+    final changed = [
+      for (final it in items)
+        if (it is _Opt && it.key != 'hideAdult' && store.get<Object>(it.key, it.def) != it.def) it.key,
+    ];
+    return Align(
+      alignment: Alignment.topLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
+          children: [
+            SectionTitle(tr(cat.title)),
+            if (items.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(tr('Nichts gefunden'), style: TextStyle(color: textDim)),
+              ),
+            for (final (i, it) in items.indexed)
+              // Gestaffelt einblenden; Schlüssel je Eintrag, damit beim Ein-/Ausblenden nichts neu startet
+              if (it is _Head)
+                Padding(
+                  key: ValueKey('head-${it.title}'),
+                  padding: EdgeInsets.fromLTRB(14, i == 0 ? 2 : 20, 14, 6),
+                  child: Text(tr(it.title).toUpperCase(),
+                      style: TextStyle(color: store.accent, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                )
+              else if (it is _Opt)
+                Rise(i,
+                    key: ValueKey(it.key),
+                    distance: 14,
+                    child: _row(
+                      context,
+                      focusNode: i == focus ? first : null,
+                      tr(it.label),
+                      it.hint == null ? null : tr(it.hint!),
+                      value: it.options == null
+                          ? null
+                          : tr(it.options![store.get<Object>(it.key, it.def)] ??
+                              (it.key == 'accent' ? hexColor(store.accent) : '—')),
+                      toggle: it.options == null ? store.get<bool>(it.key, it.def as bool) : null,
+                      color: it.key == 'accent' ? store.accent : null,
+                      changed: changed.contains(it.key),
+                      onTap: () => _change(context, it),
+                    ))
+              else if (it is _Act)
+                Rise(i,
+                    key: ValueKey(it.key),
+                    distance: 14,
+                    child: _row(context, tr(it.label), it.hint?.call(),
+                        focusNode: i == focus ? first : null,
+                        toggle: it.toggle?.call(),
+                        onTap: () => _action(context, it.key))),
+            if (reset && changed.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _row(
+                context,
+                tr('Auf Standard zurücksetzen'),
+                tr('{0} geändert (mit Punkt markiert)', [changed.length]),
+                icon: Icons.restart_alt_rounded,
+                onTap: () async {
+                  final ok = await pick(context, tr('„{0}“ auf Standard zurücksetzen?', [tr(cat.title)]),
+                      {false: tr('Abbrechen'), true: tr('Zurücksetzen')});
+                  if (ok != true) return;
+                  store.reset(changed);
+                  // Xtream-Senderlinks enthalten das Format und liegen im Listen-Cache
+                  if (changed.contains('liveFormat')) await Repo.clearCache();
+                },
+              ),
             ],
-          ),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }
 
 Future<String?> _askPin(BuildContext c, String title) {
@@ -558,6 +682,8 @@ Widget _row(BuildContext c, String label, String? hint,
         {String? value,
         bool? toggle,
         Color? color,
+        bool changed = false,
+        IconData? icon,
         bool autofocus = false,
         FocusNode? focusNode,
         required VoidCallback onTap}) =>
@@ -572,9 +698,20 @@ Widget _row(BuildContext c, String label, String? hint,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(children: [
+            if (icon != null) ...[Icon(icon, size: 20, color: ink(.7)), const SizedBox(width: 12)],
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                Row(children: [
+                  Flexible(child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
+                  // Weicht vom Standard ab
+                  if (changed)
+                    Container(
+                      width: 6,
+                      height: 6,
+                      margin: const EdgeInsets.only(left: 8),
+                      decoration: BoxDecoration(color: store.accent, shape: BoxShape.circle),
+                    ),
+                ]),
                 if (hint != null) ...[
                   const SizedBox(height: 2),
                   Text(hint, style: TextStyle(color: textDim, fontSize: 12.5)),

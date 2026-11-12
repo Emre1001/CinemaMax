@@ -58,6 +58,7 @@
                 <data android:mimeType="application/dash+xml"/>
                 <data android:mimeType="application/x-matroska"/>
                 <data android:mimeType="application/mp4"/>
+                <data android:mimeType="application/xspf+xml"/>
             </intent-filter>
             <!-- Streaming-Protokolle ohne Dateityp -->
             <intent-filter>
@@ -91,6 +92,11 @@
                 <data android:pathPattern=".*\\.mpd"/>
                 <data android:pathPattern=".*\\..*\\.mpd"/>
                 <data android:pathPattern=".*/get\\.php"/>
+                <!-- Weitere Playlist-Formate: XSPF (VLC), PLS -->
+                <data android:pathPattern=".*\\.xspf"/>
+                <data android:pathPattern=".*\\..*\\.xspf"/>
+                <data android:pathPattern=".*\\.pls"/>
+                <data android:pathPattern=".*\\..*\\.pls"/>
                 <!-- Video-/Ton-Links ohne MIME-Typ (Browser kennt den Typ vor dem Laden nicht) -->
                 <data android:pathPattern=".*\\.ts"/>
                 <data android:pathPattern=".*\\..*\\.ts"/>

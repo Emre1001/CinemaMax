@@ -26,6 +26,17 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 
 ---
 
+## 🆕 Neu in 1.7.4
+
+- **Fernseher: Live-Vorschau**: der Sender unter dem Fokus läuft oben rechts über der Liste, daneben Name und laufende Sendung. Mit OK wächst das Bild zum Vollbild und derselbe Player läuft weiter (abschaltbar unter Einstellungen › Live-TV)
+- **Senderleiste im Vollbild** (alle Geräte): Pfeil runter oder unten hochwischen zeigt alle Sender mit Logo und Name unter dem Regler
+- **Links/Rechts spult unbegrenzt** ohne Bedienleiste, die Sprünge summieren sich („+40 s“)
+- **M3U-Ordner** als Quelle: alle Playlists darin, auch in Unterordnern; dazu **XSPF, PLS, ASX und Enigma2-Bouquets**
+- **Mehr abspielbar**: Tunneling für 4K auf TV-Boxen, DTS-Ton in MPEG-TS, bei gesperrter Player-Kennung (HTTP 403) probiert die App VLC, okhttp, IPTV Smarters und Browser, mpv wechselt bei Xtream-Live zwischen .ts und .m3u8 und verbindet kurze Aussetzer selbst neu
+- **Einstellungen**: Suche, Gruppen, Markierung geänderter Werte und „Auf Standard zurücksetzen“; App-Logo oben links
+- **Schneller**: Streams starten eine halbe bis ganze Sekunde früher, Seitenwechsel sind kürzer, weniger Neuaufbau unter dem Player, die Suche friert bei großen Listen nicht mehr ein
+- **Fehlerfixes**: falscher Sender nach schnellem Zappen (ExoPlayer), Detailseite zeigt nach dem Schauen den neuen Stand, hängende Downloads brechen nach 60 s Stillstand ab, ungültiger Startbereich aus alter Sicherung, Hinweise passen auf schmale Handys
+
 ## 🛠️ Fehlerfixes in 1.7.3
 
 - **Schneller**: die App öffnet sofort (Startanimation ist jetzt aus, in Einstellungen › Start wieder einschaltbar), die zuletzt genutzte Liste wird schon beim Start im Hintergrund geladen, Start-Schritte laufen gleichzeitig

@@ -36,15 +36,46 @@ typedef Track = ({String id, String label});
 abstract class Engine {
   final state = ValueNotifier(const PlaybackState());
   VoidCallback? onCompleted;
+
+  /// Zustand melden. Läuft nur die Zeit weiter, höchstens 4× pro Sekunde: mpv meldet die Position bei jedem
+  /// Videobild, ExoPlayer 10× pro Sekunde, und jede Meldung baut Fortschrittsleiste und Anzeigen neu
+  /// (auch die ausgeblendeten). Das kostet auf TV-Boxen Bilder.
+  @protected
+  void emit(PlaybackState s) {
+    final o = state.value;
+    if (s.playing == o.playing &&
+        s.buffering == o.buffering &&
+        s.ready == o.ready &&
+        s.error == o.error &&
+        s.size == o.size &&
+        s.duration == o.duration &&
+        (s.position - o.position).abs() < const Duration(milliseconds: 250) &&
+        (s.buffered - o.buffered).abs() < const Duration(seconds: 1)) {
+      return;
+    }
+    state.value = s;
+  }
   String? audioId, subtitleId;
 
   /// Android: ExoPlayer, außer der Nutzer wählt mpv ([engine] überschreibt die Einstellung). PC: immer mpv.
-  static Engine create([String url = '', String? engine]) {
+  static Engine create([String url = '', String? engine]) => usesExo(url, engine) ? ExoEngine() : MpvEngine();
+
+  /// Spielt [url] mit ExoPlayer (sonst mpv)? Die Live-Vorschau behält ihren Player, solange das gleich bleibt.
+  static bool usesExo(String url, [String? engine]) {
     // FLV-Filme kann ExoPlayer nicht spulen: mpv
     final flv = RegExp(r'\.flv$', caseSensitive: false).hasMatch(Uri.tryParse(url)?.path ?? url);
-    return Platform.isAndroid && (engine ?? store.get('engine', 'exo')) == 'exo' && !exotic(url) && !flv
-        ? ExoEngine()
-        : MpvEngine();
+    return Platform.isAndroid && (engine ?? store.get('engine', 'exo')) == 'exo' && !exotic(url) && !flv;
+  }
+
+  /// Weitere Adressen für denselben Stream: Xtream-Live im anderen Format (.ts / .m3u8), http statt https
+  /// (Server, die nur http sprechen).
+  static List<String> alternates(String url) {
+    final path = Uri.tryParse(url)?.path ?? url;
+    return [
+      if (path.contains('/live/') && path.endsWith('.ts')) url.replaceFirst(RegExp(r'\.ts(?=$|\?)'), '.m3u8'),
+      if (path.contains('/live/') && path.endsWith('.m3u8')) url.replaceFirst(RegExp(r'\.m3u8(?=$|\?)'), '.ts'),
+      if (url.toLowerCase().startsWith('https://')) 'http://${url.substring(8)}',
+    ];
   }
 
   /// rtmp/udp/mms/srt kann ExoPlayer nicht: dafür immer mpv. RTSP auch: Media3 stürzt bei manchen
@@ -205,6 +236,10 @@ abstract class Engine {
 // ---------------- ExoPlayer (Android) ----------------
 
 class ExoEngine extends Engine {
+  /// Videoausgabe: true = SurfaceView, false = Texture, null = Einstellung (Fernseher: SurfaceView).
+  final bool? surface;
+  ExoEngine({this.surface});
+
   final _ctrl = ValueNotifier<VideoPlayerController?>(null);
   bool _completedSent = false;
 
@@ -264,7 +299,7 @@ class ExoEngine extends Engine {
     final err = v.hasError ? v.errorDescription : null;
     // Live-MPEG-TS ohne Länge: das Plugin meldet eine riesige Dauer (siehe UNKNOWN_DURATION_MS), hier 0 = unbekannt
     final unknown = v.duration.inMilliseconds >= _unknownDurationMs;
-    state.value = PlaybackState(
+    emit(PlaybackState(
       position: v.position,
       duration: unknown ? Duration.zero : v.duration,
       buffered: v.buffered.isEmpty ? Duration.zero : v.buffered.last.end,
@@ -273,7 +308,7 @@ class ExoEngine extends Engine {
       ready: v.isInitialized,
       error: err,
       size: _playingSize ?? v.size,
-    );
+    ));
     if (v.isCompleted && !_completedSent) {
       _completedSent = true;
       onCompleted?.call();
@@ -290,21 +325,25 @@ class ExoEngine extends Engine {
 
   @override
   Future<void> open(String url, Map<String, String> headers, {Duration? start}) async {
+    // Vor dem ersten await zählen: sonst überholt beim schnellen Zappen der ältere Aufruf den neueren
+    // (er wartet länger auf das Freigeben) und es läuft ein anderer Sender, als angezeigt wird
+    final gen = ++_gen;
     // Alten Player zuerst freigeben: TV-Boxen haben oft nur einen Hardware-Decoder
     final old = _c;
     _ctrl.value = null;
     old?.removeListener(_sync);
     await old?.dispose();
+    if (gen != _gen || _disposed) return;
     state.value = const PlaybackState();
     _completedSent = false;
     _playingSize = null;
     qualityId = null;
 
-    final gen = ++_gen;
     String? lastError;
     Future<VideoPlayerController?> tryOpen(String u, VideoFormat? hint) async {
       // Fernseher: SurfaceView zeigt 4K in voller Auflösung und HDR mit richtigen Farben
-      final view = store.get('surfaceView', isAndroidTv) ? VideoViewType.platformView : VideoViewType.textureView;
+      final view =
+          surface ?? store.get('surfaceView', isAndroidTv) ? VideoViewType.platformView : VideoViewType.textureView;
       // Heruntergeladene Datei oder Netzwerk-Stream
       final c = u.startsWith('/')
           ? VideoPlayerController.file(File(u), viewType: view)
@@ -332,6 +371,8 @@ class ExoEngine extends Engine {
         return;
       }
       if (c != null) break;
+      // Zugang verweigert: daran ändert eine andere Adresse nichts, den Server nicht weiter anfragen
+      if (RegExp(r'HTTP 40[13]\b').hasMatch(lastError ?? '')) break;
     }
     if (c == null) {
       state.value = PlaybackState(buffering: false, error: lastError ?? tr('Stream konnte nicht geöffnet werden'));
@@ -518,7 +559,7 @@ class MpvEngine extends Engine {
     _video; // Video-Ausgabe vor dem ersten open() anlegen
     void up() {
       final s = _p.state;
-      state.value = PlaybackState(
+      emit(PlaybackState(
         position: s.position,
         duration: s.duration,
         buffered: s.buffer,
@@ -528,20 +569,27 @@ class MpvEngine extends Engine {
         // mpv meldet auch Fehler, von denen es sich selbst erholt: läuft es weiter, ist der Fehler weg
         error: _ready ? null : state.value.error,
         size: Size((s.width ?? 0).toDouble(), (s.height ?? 0).toDouble()),
-      );
+      ));
+    }
+
+    // Läuft: ab jetzt nach einem leeren Puffer wieder 2 s sammeln (siehe open)
+    void ready() {
+      if (_ready) return;
+      _ready = true;
+      _setProp('cache-pause-wait', '2');
     }
 
     _subs.addAll([
       // mpv meldet „playing“ schon vor dem Laden: erst laufende Zeit oder Bild heißt bereit (auch Radio)
       _p.stream.position.listen((p) {
-        if (p > Duration.zero) _ready = true;
+        if (p > Duration.zero) ready();
         up();
       }),
       _p.stream.playing.listen((_) => up()),
       _p.stream.buffering.listen((_) => up()),
       _p.stream.duration.listen((_) => up()),
       _p.stream.width.listen((w) {
-        if (w != null && w > 0) _ready = true;
+        if (w != null && w > 0) ready();
         up();
       }),
       _p.stream.completed.listen((c) {
@@ -560,13 +608,13 @@ class MpvEngine extends Engine {
           }
         }),
       _p.stream.error.listen((e) {
-        // https-Link auf einen Server, der nur http spricht: einmal mit http versuchen (wie bei ExoPlayer)
+        // Lässt sich der Stream nicht öffnen: die anderen Adressen versuchen (wie bei ExoPlayer): Xtream-Live
+        // im anderen Format, https-Link auf einen Server, der nur http spricht
         final u = _opened;
         // Nur bei Verbindungsfehlern, nicht bei Decoder-Meldungen
-        if (!_ready && u != null && u.$1.toLowerCase().startsWith('https://') &&
+        if (!_ready && u != null && _alts.isNotEmpty &&
             RegExp(r'failed to open|tls|ssl|handshake', caseSensitive: false).hasMatch(e)) {
-          _opened = null;
-          _p.open(mk.Media('http://${u.$1.substring(8)}', httpHeaders: u.$2, start: u.$3));
+          _p.open(mk.Media(_alts.removeAt(0), httpHeaders: u.$2, start: u.$3));
           return;
         }
         _ready = false;
@@ -575,7 +623,8 @@ class MpvEngine extends Engine {
     ]);
   }
 
-  (String, Map<String, String>, Duration?)? _opened; // für den http-Rückfall, null = schon versucht
+  (String, Map<String, String>, Duration?)? _opened; // für den Rückfall auf [_alts]
+  final _alts = <String>[]; // noch nicht versuchte Adressen für denselben Stream
 
   bool _configured = false;
   Future<void> _configure() async {
@@ -593,9 +642,14 @@ class MpvEngine extends Engine {
     // Stream-Analyse begrenzen: HLS mit Untertitel-Spur (z. B. ARD/ZDF) wartet sonst endlos auf Untertitel-Pakete.
     // Anhängen statt ersetzen: media_kits seg_max_retry=5 (HLS-Segmente erneut laden statt Ruckler) bleibt erhalten
     await np.command(['change-list', 'demuxer-lavf-o', 'append', 'analyzeduration=3000000']).catchError((_) {});
-    // Live-Streams kommen nur in Echtzeit: erst 2 s puffern, sonst läuft der Puffer bei jeder Schwankung leer (Ruckeln)
+    // Kurzer Aussetzer bei Sendern über http (MPEG-TS): ffmpeg verbindet selbst neu, statt dass der Sender
+    // abbricht und neu geöffnet werden muss. Höchstens 4 s, danach greift das Neuverbinden der App
+    for (final o in ['reconnect=1', 'reconnect_streamed=1', 'reconnect_on_network_error=1', 'reconnect_delay_max=4']) {
+      await np.command(['change-list', 'stream-lavf-o', 'append', o]).catchError((_) {});
+    }
+    // Live-Streams kommen nur in Echtzeit: erst puffern, sonst läuft der Puffer bei jeder Schwankung leer (Ruckeln).
+    // Wie lange, setzt open(): zum Start kurz, danach 2 s
     await set('cache-pause-initial', 'yes');
-    await set('cache-pause-wait', '2');
     // Höchstens 60 s im Voraus laden (Standard: 1 Stunde bzw. bis der Puffer voll ist): Filme laufen genauso
     // flüssig, der Server muss aber nicht in einem Stoß Hunderte MB liefern und Spulen verwirft weniger
     await set('cache-secs', '60');
@@ -622,6 +676,9 @@ class MpvEngine extends Engine {
   Future<void> open(String url, Map<String, String> headers, {Duration? start}) async {
     await _configure();
     await _outputReady;
+    // Start schon nach 1 s Puffer statt 2 s: Sender sind beim Zappen eine Sekunde früher da. Läuft der Puffer
+    // danach doch leer, sammelt mpv wieder 2 s (siehe ready)
+    await _setProp('cache-pause-wait', '1');
     _ready = false;
     qualityId = null;
     state.value = const PlaybackState();
@@ -630,6 +687,9 @@ class MpvEngine extends Engine {
       url = Uri.parse(url).toString();
     }
     _opened = (url, headers, start);
+    _alts
+      ..clear()
+      ..addAll(Engine.alternates(url));
     await _p.open(mk.Media(url, httpHeaders: headers, start: start));
   }
 

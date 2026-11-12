@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,6 +16,7 @@ import 'detail.dart';
 import 'guide.dart';
 import 'downloads_view.dart';
 import 'player.dart';
+import 'preview.dart';
 import 'settings.dart';
 import 'start.dart';
 
@@ -44,7 +46,12 @@ void openItem(BuildContext c, Source s, MediaItem m, {List<MediaItem>? siblings}
   var list = siblings ?? [m];
   var i = list.indexWhere((x) => x.id == m.id);
   if (i < 0) (list, i) = ([m], 0);
-  PlayerScreen.open(c, s, [for (final x in list) PlayItem(x.url!, x.name, x)], i);
+  final items = [for (final x in list) PlayItem(x.url!, x.name, x)];
+  // Fernseher: läuft der Sender schon in der Vorschau, spielt deren Player im Vollbild weiter
+  LivePreview.take(m).then((h) {
+    if (c.mounted) return PlayerScreen.open(c, s, items, i, handoff: h?.engine, from: h?.from);
+    h?.engine?.dispose();
+  });
 }
 
 void toggleFav(BuildContext c, Source s, MediaItem m) {
@@ -94,7 +101,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
       if (!mounted) return;
       // Programmführer im Hintergrund laden
       if (store.get('epg', true)) epg.ensure(widget.source, lib);
-      final start = Tab.values.byName(store.get('startTab', 'mine'));
+      // Unbekannter Wert (alte Sicherung): Start, statt „Server nicht erreichbar“ zu melden
+      final start = Tab.values.asNameMap()[store.get('startTab', 'mine')] ?? Tab.mine;
       setState(() {
         _lib = lib;
         _tab = _tabs.contains(start) || (start == Tab.guide && _hasGuide) ? start : (_contentTabs.firstOrNull ?? Tab.search);
@@ -321,7 +329,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     child: ClipRect(
                       child: OverflowBox(
                         alignment: Alignment.centerLeft,
-                        maxWidth: 220,
+                        maxWidth: 260,
                         child: Padding(padding: const EdgeInsets.only(left: 12), child: Wordmark(compact: !open)),
                       ),
                     ),
@@ -793,7 +801,12 @@ class _ContentViewState extends State<ContentView> {
         ),
       ),
       Container(width: 1, color: line),
-      Expanded(child: FocusTraversalGroup(child: grid)),
+      Expanded(
+        child: Column(children: [
+          if (widget.kind == Kind.live && LivePreview.enabled(context)) LivePreview(source: widget.source),
+          Expanded(child: FocusTraversalGroup(child: grid)),
+        ]),
+      ),
     ]);
   }
 }
@@ -911,6 +924,8 @@ class _CategoryPickerState extends State<_CategoryPicker> {
   }
 }
 
+List<String> _normalizeAll(List<String> names) => [for (final n in names) normalize(n)];
+
 /// Für Suche: Kleinbuchstaben, Umlaute vereinfacht, Satzzeichen weg ("Spider-Man" = "spider man").
 String normalize(String s) => s
     .toLowerCase()
@@ -994,6 +1009,9 @@ class MediaTile extends StatelessWidget {
       return Tap(
         onTap: onTap,
         onLongPress: () => toggleFav(context, source, item),
+        onFocus: (v) {
+          if (v) LivePreview.focus(item);
+        },
         scale: listMode ? 1.02 : 1.06,
         child: Container(
           color: surface,
@@ -1230,18 +1248,29 @@ class _SearchViewState extends State<SearchView> {
   Kind? _only; // Filter: nur Live/Filme/Serien
   Map<Kind, List<MediaItem>> _results = {};
   bool _remoteBusy = false;
-  // Namen einmal normalisieren statt bei jedem Tastendruck
-  late final Map<Kind, List<(String, MediaItem)>> _index = {
-    for (final k in Kind.values)
-      k: [
-        for (final m in widget.lib.of(k))
-          if (!store.hideAdult || !isAdult(m.group)) (normalize(m.name), m),
-      ],
-  };
+  int _runId = 0;
+  // Namen einmal normalisieren statt bei jedem Tastendruck. Große Listen im Hintergrund: bei 100 000 Filmen
+  // fror sonst der erste Tastendruck die Oberfläche für Sekunden ein (TV-Boxen)
+  late final Future<Map<Kind, List<(String, MediaItem)>>> _index = () async {
+    final items = {
+      for (final k in Kind.values)
+        k: [
+          for (final m in widget.lib.of(k))
+            if (!store.hideAdult || !isAdult(m.group)) m,
+        ],
+    };
+    final names = [for (final l in items.values) for (final m in l) m.name];
+    final norm = names.length < 3000 ? _normalizeAll(names) : await compute(_normalizeAll, names);
+    var i = 0;
+    return {
+      for (final e in items.entries) e.key: [for (final m in e.value) (norm[i++], m)],
+    };
+  }();
 
   @override
   void initState() {
     super.initState();
+    _index.ignore(); // schon beim Öffnen der Suche anstoßen
     // TV: Fokus erst aufs Feld legen; Tastatur öffnet sich mit OK
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && formFactor(context) != Ff.tv) _field.requestFocus();
@@ -1269,7 +1298,8 @@ class _SearchViewState extends State<SearchView> {
     _debounce = Timer(const Duration(milliseconds: 200), () => _run(q));
   }
 
-  void _run(String q) {
+  Future<void> _run(String q) async {
+    final id = ++_runId;
     final n = normalize(q);
     if (n.isEmpty) {
       return setState(() {
@@ -1277,11 +1307,14 @@ class _SearchViewState extends State<SearchView> {
         _remoteBusy = false;
       });
     }
+    final index = await _index;
+    // Inzwischen weitergetippt: die neuere Suche gilt
+    if (!mounted || id != _runId) return;
     final words = n.split(' ');
     final res = <Kind, List<MediaItem>>{};
     for (final k in Kind.values) {
       final starts = <MediaItem>[], contains = <MediaItem>[];
-      for (final (name, m) in _index[k]!) {
+      for (final (name, m) in index[k]!) {
         if (!words.every(name.contains)) continue;
         (name.startsWith(n) ? starts : contains).add(m);
         if (starts.length + contains.length >= 300) break;
