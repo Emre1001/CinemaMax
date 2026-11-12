@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
 
+# Flutter fest auf die getestete Version: 3.50.0 zeichnet unter Linux (X11, Impeller/OpenGL) nur ein Viertel
+# des Fensters. Erst nach einem Test lokal anheben (flutter --version).
+
 jobs:
   android:
     runs-on: ubuntu-24.04
@@ -15,7 +18,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - uses: subosito/flutter-action@v2
-        with: { channel: stable }
+        with: { channel: stable, flutter-version: '3.47.7' }
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with: { name: android-apk, path: build/app/outputs/flutter-apk/app-release.apk }
@@ -26,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev rpm file
       - uses: subosito/flutter-action@v2
-        with: { channel: stable }
+        with: { channel: stable, flutter-version: '3.47.7' }
       - run: scripts/package_linux.sh
       - uses: actions/upload-artifact@v4
         with: { name: linux-packages, path: dist/* }
@@ -36,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
-        with: { channel: stable }
+        with: { channel: stable, flutter-version: '3.47.7' }
       - run: flutter build windows --release
       # Visual-C++-Laufzeit beilegen, damit die App auch auf frischen Windows-Installationen startet
       - shell: pwsh
