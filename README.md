@@ -26,6 +26,10 @@ M3U, Xtream Codes, Stalker und freie IPTV-Sender in einer App. Ohne Werbung, ohn
 
 ---
 
+## 🛠️ Fehlerfix in 1.7.5
+
+- **Linux**: die App wird wieder im ganzen Fenster gezeichnet (1.7.4 zeigte sie nur im unteren linken Viertel)
+
 ## 🆕 Neu in 1.7.4
 
 - **Fernseher: Live-Vorschau**: der Sender unter dem Fokus läuft oben rechts über der Liste, daneben Name und laufende Sendung. Mit OK wächst das Bild zum Vollbild und derselbe Player läuft weiter (abschaltbar unter Einstellungen › Live-TV)
