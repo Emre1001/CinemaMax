@@ -31,7 +31,7 @@ class Rise extends StatefulWidget {
 }
 
 class _RiseState extends State<Rise> with SingleTickerProviderStateMixin {
-  late final _c = AnimationController(vsync: this, duration: fxMs(700));
+  late final _c = AnimationController(vsync: this, duration: fxMs(420));
   Timer? _t;
 
   @override
@@ -40,9 +40,9 @@ class _RiseState extends State<Rise> with SingleTickerProviderStateMixin {
     if (store.reduceMotion) {
       _c.value = 1;
     } else {
-      // Höchstens ~1 s Staffelung: lange Listen sollen nicht warten
-      final step = Perf.lite ? 40 : 75;
-      _t = Timer(Duration(milliseconds: 90 + math.min(widget.index, 12) * step), _c.forward);
+      // Höchstens ~0,5 s Staffelung: lange Listen sollen nicht warten
+      final step = Perf.lite ? 25 : 45;
+      _t = Timer(Duration(milliseconds: 30 + math.min(widget.index, 12) * step), _c.forward);
     }
   }
 
@@ -119,21 +119,27 @@ class GlowButton extends StatelessWidget {
 /// Alte Seite im ersten Drittel des Wechsels ausblenden, wenn eine neue darüber kommt (und beim Zurück
 /// erst im letzten Drittel wieder einblenden). Seiten sind durchsichtig (gemeinsamer Hintergrund):
 /// ohne das sieht man beide Seiten übereinander.
+final _fadeOut = Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: const Interval(0, .3, curve: Curves.easeIn)));
+final _fadeIn = CurveTween(curve: Curves.easeOut);
+final _shown = CurveTween(curve: const Interval(.3, 1, curve: Curves.easeOutCubic));
+final _grow = Tween(begin: .97, end: 1.0).chain(_shown);
+
 Widget fxOutgoing(Animation<double> secondary, Widget child) {
   if (store.reduceMotion) return child;
-  final hidden = CurvedAnimation(parent: secondary, curve: const Interval(0, .3, curve: Curves.easeIn));
-  return FadeTransition(opacity: Tween(begin: 1.0, end: 0.0).animate(hidden), child: child);
+  // drive statt CurvedAnimation: Übergänge bauen bei jedem Bild neu, und jede CurvedAnimation hängt sich
+  // dauerhaft an die Animation der Seite (Hunderte Zuhörer je Seitenwechsel)
+  return FadeTransition(opacity: secondary.drive(_fadeOut), child: child);
 }
 
 /// Einblenden ohne Gleiten (Startbild → App, Einrichtung → Start). Blendet auch selbst aus, wenn danach
 /// eine Seite darüber geöffnet wird, z. B. IPTV oder M3U/Xtream/Stalker vom Startbildschirm.
-Route<T> fxFadeRoute<T>(Widget page, {int ms = 500}) => PageRouteBuilder<T>(
+Route<T> fxFadeRoute<T>(Widget page, {int ms = 360}) => PageRouteBuilder<T>(
       transitionDuration: fxMs(ms),
-      reverseTransitionDuration: fxMs(420),
+      reverseTransitionDuration: fxMs(280),
       pageBuilder: (_, _, _) => page,
       transitionsBuilder: (_, a, secondary, child) => fxOutgoing(
         secondary,
-        FadeTransition(opacity: CurvedAnimation(parent: a, curve: Curves.easeOut), child: child),
+        FadeTransition(opacity: a.drive(_fadeIn), child: child),
       ),
     );
 
@@ -142,7 +148,7 @@ class FxPageTransitions extends PageTransitionsBuilder {
   const FxPageTransitions();
 
   @override
-  Duration get transitionDuration => fxMs(420);
+  Duration get transitionDuration => fxMs(280);
 
   /// Seite darunter ist keine normale Seite (z. B. Startbildschirm nach Startbild/Einrichtung): Flutter friert
   /// dann deren eigenes Ausblenden ein und nimmt nur diese Übergabe. Ohne sie blieb der Startbildschirm beim
@@ -158,12 +164,11 @@ class FxPageTransitions extends PageTransitionsBuilder {
     // Fade-Through: die alte Seite ist im ersten Drittel weg, erst danach kommt die neue.
     // Seiten sind durchsichtig (gemeinsamer Hintergrund): so sieht man nie beide übereinander.
     // Gleiche Kurve auch beim Zurück: oben liegende Seite geht zuerst, die darunter kommt danach
-    final shown = CurvedAnimation(parent: animation, curve: const Interval(.3, 1, curve: Curves.easeOutCubic));
     return fxOutgoing(
       secondaryAnimation,
       FadeTransition(
-        opacity: shown,
-        child: Perf.lite ? child : ScaleTransition(scale: Tween(begin: .97, end: 1.0).animate(shown), child: child),
+        opacity: animation.drive(_shown),
+        child: Perf.lite ? child : ScaleTransition(scale: animation.drive(_grow), child: child),
       ),
     );
   }

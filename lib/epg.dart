@@ -143,9 +143,11 @@ final _attrRe = RegExp(r'''(\w+)=(?:"([^"]*)"|'([^']*)')''');
 final _titleRe = RegExp(r'<title[^>]*>([\s\S]*?)</title>');
 final _descRe = RegExp(r'<desc[^>]*>([\s\S]*?)</desc>');
 
+final _timeRe = RegExp(r'^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)?\s*([+-]\d{4})?');
+
 /// "20261016203000 +0200" -> DateTime (lokal).
 DateTime? xmltvTime(String s) {
-  final m = RegExp(r'^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)?\s*([+-]\d{4})?').firstMatch(s.trim());
+  final m = _timeRe.firstMatch(s.trim());
   if (m == null) return null;
   var t = DateTime.utc(int.parse(m[1]!), int.parse(m[2]!), int.parse(m[3]!), int.parse(m[4]!), int.parse(m[5]!),
       int.parse(m[6] ?? '0'));

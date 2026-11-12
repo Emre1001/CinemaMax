@@ -288,10 +288,10 @@ class Wordmark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          width: 10,
-          height: 22,
-          decoration: BoxDecoration(color: store.accent, borderRadius: BorderRadius.circular(3)),
+        // App-Logo (wie das Symbol auf dem Startbildschirm des Geräts), klein dekodiert
+        ClipRRect(
+          borderRadius: BorderRadius.circular(7),
+          child: Image.asset('assets/icon.png', width: 30, height: 30, cacheWidth: 96, filterQuality: FilterQuality.medium),
         ),
         if (!compact) const SizedBox(width: 10),
         if (!compact)
@@ -767,7 +767,7 @@ class _SourceEditorState extends State<SourceEditor> {
                 switch (_type) {
                   SourceType.xtream => tr('Server-URL (http://host:port)'),
                   SourceType.stalker => tr('Portal-URL (http://host:port/c/)'),
-                  _ => tr('M3U-URL'),
+                  _ => tr('M3U-URL, Datei oder Ordner'),
                 },
                 type: TextInputType.url),
             if (_type == SourceType.xtream) ...[

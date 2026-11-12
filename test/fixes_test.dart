@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:cinemamax/models.dart';
+import 'package:cinemamax/playback.dart';
 import 'package:cinemamax/repo.dart';
 import 'package:cinemamax/store.dart';
 import 'package:cinemamax/ui/browse.dart';
@@ -92,7 +93,51 @@ void main() {
     });
   });
 
+  group('Neu', () {
+    test('Ordner als M3U-Quelle: alle Listen darin, Dateiname als Kategorie', () async {
+      final folder = Directory('${dir.path}/listen')..createSync();
+      File('${folder.path}/Sport.m3u').writeAsStringSync('#EXTM3U\n#EXTINF:-1,Eins\nhttp://h.tv/1.ts\n');
+      Directory('${folder.path}/mehr').createSync();
+      File('${folder.path}/mehr/News.M3U8')
+          .writeAsStringSync('#EXTM3U\n#EXTINF:-1 group-title="Welt",Zwei\nhttp://h.tv/2.ts\n#EXTINF:-1,Drei\nhttp://h.tv/3.ts\n');
+      File('${folder.path}/notiz.txt').writeAsStringSync('kein Sender');
+      final lib = await Repo.load(Source(id: 'ordner', name: 'O', type: SourceType.m3u, url: folder.path), force: true);
+      expect({for (final m in lib.of(Kind.live)) m.name: m.group}, {'Eins': 'Sport', 'Zwei': 'Welt', 'Drei': 'News'});
+    });
+
+    test('Player-Zustand: laufende Zeit höchstens 4× pro Sekunde, alles andere sofort', () {
+      final e = _FakeEngine();
+      var n = 0;
+      e.state.addListener(() => n++);
+      PlaybackState at(int ms, {bool playing = true}) =>
+          PlaybackState(position: Duration(milliseconds: ms), playing: playing, buffering: false, ready: true);
+      e.push(at(0));
+      for (var ms = 40; ms <= 1000; ms += 40) {
+        e.push(at(ms));
+      }
+      expect(n, inInclusiveRange(4, 5));
+      final before = n;
+      e.push(at(1010, playing: false)); // Pause: sofort
+      e.push(at(60000, playing: false)); // Sprung: sofort
+      expect(n, before + 2);
+    });
+  });
+
   group('Store', () {
+    test('Stilles Speichern des Fortschritts baut nichts neu auf', () {
+      final s = Source(id: 'quiet', name: 'Q', type: SourceType.m3u, url: 'http://h/x.m3u');
+      const film = MediaItem(id: 'f', name: 'Film', kind: Kind.movie, group: 'G', url: 'http://h/f.mkv');
+      var n = 0;
+      void l() => n++;
+      store.addListener(l);
+      store.saveProgress(s, film, film.url!, 'Film', const Duration(minutes: 5), const Duration(minutes: 90), notify: false);
+      expect(n, 0);
+      expect(store.resumeAt(film.url!), const Duration(minutes: 5));
+      store.refresh();
+      expect(n, 1);
+      store.removeListener(l);
+    });
+
     test('Falscher Typ aus alter Sicherung stürzt nicht ab', () {
       expect(store.get('defaultRate', 1.0), 2.0);
     });
@@ -146,6 +191,34 @@ void main() {
       expect(find.byType(VerticalDivider), findsOneWidget);
       expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
       expect(FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<SettingsBody>(), isNotNull);
+      store.set('layout', 'auto');
+    });
+
+    testWidgets('Einstellungen: Suche findet über Kategorien hinweg, geänderte Werte lassen sich zurücksetzen', (t) async {
+      store.set('layout', 'desktop');
+      t.view.physicalSize = const Size(1280, 2400); // hoch genug: die Liste baut nur Sichtbares
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      store.set('lang', 'de');
+      store.set('clock', false); // weicht vom Standard ab
+      await t.pumpWidget(const MaterialApp(home: Scaffold(body: SettingsBody())));
+      await t.pumpAndSettle();
+      expect(find.text('Auf Standard zurücksetzen'), findsOneWidget);
+      await t.enterText(find.byType(TextField), 'puffer');
+      await t.pumpAndSettle();
+      expect(find.text('Puffergröße'), findsOneWidget);
+      expect(find.text('PLAYER'), findsOneWidget); // Kategorie als Überschrift der Treffer
+      expect(find.text('Uhr anzeigen'), findsNothing);
+      expect(find.text('Auf Standard zurücksetzen'), findsNothing);
+      await t.enterText(find.byType(TextField), '');
+      await t.pumpAndSettle();
+      await t.tap(find.text('Auf Standard zurücksetzen'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Zurücksetzen'));
+      await t.pumpAndSettle();
+      expect(store.get('clock', true), isTrue);
+      expect(find.text('Auf Standard zurücksetzen'), findsNothing);
+      store.set('lang', 'system');
       store.set('layout', 'auto');
     });
 
@@ -206,7 +279,8 @@ void main() {
       await t.pumpAndSettle();
       // Zurück: ebenso
       nav.currentState!.pop();
-      for (var i = 0; i < 6; i++) {
+      // Übergang dauert 280 ms: danach ist „Listen“ abgebaut
+      for (var i = 0; i < 4; i++) {
         await t.pump(const Duration(milliseconds: 60));
         final a = opacityOf('Start'), b = opacityOf('Listen');
         expect(a == 0 || b == 0, isTrue, reason: 'zurück ${i * 60}ms: Start $a, Listen $b');
@@ -215,4 +289,11 @@ void main() {
       store.set('perf', 'auto');
     });
   });
+}
+
+class _FakeEngine extends Engine {
+  void push(PlaybackState s) => emit(s);
+
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
 }

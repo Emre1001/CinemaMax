@@ -30,6 +30,25 @@ http://example.com/stream.m3u8
     expect(dark.episodes!.map((e) => '${e.season}x${e.number}'), ['1x2', '2x1']);
   });
 
+  test('Andere Playlist-Formate: XSPF, PLS, ASX, Enigma2', () {
+    List<String> live(String text) => [for (final m in parseM3u(text, liveOnly: true)[Kind.live]!) '${m.name}|${m.url}'];
+    expect(
+        live('<?xml version="1.0"?><playlist version="1"><trackList>'
+            '<track><location>http://h/1.ts?a=1&amp;b=2</location><title>Eins &amp; Zwei</title><image>http://h/l.png</image></track>'
+            '<track><title>ohne Link</title></track></trackList></playlist>'),
+        ['Eins & Zwei|http://h/1.ts?a=1&b=2']);
+    expect(parseM3u('<playlist><trackList><track><location>http://h/1.ts</location><image>http://h/l.png</image></track></trackList></playlist>',
+            liveOnly: true)[Kind.live]!.single.logo, 'http://h/l.png');
+    expect(live('[playlist]\nFile1=http://h/a.mp3\nTitle1=Radio A\nFile2=http://h/b.mp3\nNumberOfEntries=2\n'),
+        ['Radio A|http://h/a.mp3', 'http://h/b.mp3|http://h/b.mp3']);
+    expect(live('<ASX version="3.0"><Entry><Title>Sender</Title><Ref href="mms://h/s"/></Entry></ASX>'), ['Sender|mms://h/s']);
+    final e2 = parseM3u('#NAME Sport\n#SERVICE 4097:0:1:0:0:0:0:0:0:0:http%3a//h%3a8080/live/u/p/1.ts:Alt\n#DESCRIPTION Sky Sport\n',
+        liveOnly: true)[Kind.live]!.single;
+    expect([e2.name, e2.url, e2.group], ['Sky Sport', 'http://h:8080/live/u/p/1.ts', 'Sport']);
+    // M3U bleibt, wie es ist
+    expect(toM3u(sample), sample);
+  });
+
   test('Titel mit Anführungszeichen und Komma', () {
     final r = parseM3u('#EXTM3U\n#EXTINF:-1 tvg-name="X" group-title="Filme",Der "Pate", Teil 2\nhttp://h/movie/1.mkv\n');
     expect(r[Kind.movie]!.single.name, 'Der "Pate", Teil 2');

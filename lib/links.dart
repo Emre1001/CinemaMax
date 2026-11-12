@@ -83,6 +83,14 @@ LinkKind classifyLink(String link, String? head, {String? contentType}) {
     if (text.contains('#EXT-X-')) return text.contains('#EXT-X-ENDLIST') ? LinkKind.vod : LinkKind.live;
     return LinkKind.playlist;
   }
+  // Andere Playlist-Formate: XSPF (VLC), PLS, ASX, Enigma2-Bouquet
+  final low = text?.toLowerCase() ?? '';
+  if ((low.contains('<playlist') && low.contains('<track')) ||
+      low.startsWith('[playlist]') ||
+      low.contains('<asx') ||
+      low.contains('#service ')) {
+    return LinkKind.playlist;
+  }
   // DASH: statisch = Film, dynamisch = Live
   if (text != null && text.contains('<MPD')) return text.contains(RegExp(r'''type=["']dynamic''')) ? LinkKind.live : LinkKind.vod;
   if (_vodExt.hasMatch(path)) return LinkKind.vod;
@@ -105,6 +113,8 @@ Future<LinkKind> probeLink(String link, {int depth = 0}) async {
   try {
     final file = localPath(bare);
     if (file != null) {
+      // Ordner mit Playlists
+      if (await FileSystemEntity.isDirectory(file)) return LinkKind.playlist;
       final bytes = await File(file).openRead(0, max).fold<List<int>>([], (a, b) => a..addAll(b));
       return classifyLink(link, utf8.decode(bytes, allowMalformed: true));
     }

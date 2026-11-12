@@ -30,9 +30,19 @@ class _DetailScreenState extends State<DetailScreen> {
   MediaItem get m => widget.item;
   bool get _xtream => widget.source.type == SourceType.xtream;
 
+  // Zurück aus dem Player: „Fortsetzen“, „Weiter: S1 E2“ und Fortschrittsbalken zeigen den neuen Stand
+  void _onStore() => setState(() {});
+
+  @override
+  void dispose() {
+    store.removeListener(_onStore);
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    store.addListener(_onStore);
     if (_xtream) {
       Repo.xtreamInfo(widget.source, m).then((i) {
         if (mounted) setState(() => _info = i);

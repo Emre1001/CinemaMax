@@ -31,8 +31,10 @@ class Store extends ChangeNotifier {
       if (slim) await _p.setString(key, jsonEncode(map));
     }
     // Früheres Standard-Orange auf das neue Standard-Blau umstellen (einmalig)
-    if (_p.getInt('accent') == 0xFFE5A23A && !(_p.getBool('accentMigrated') ?? false)) await _p.remove('accent');
-    await _p.setBool('accentMigrated', true);
+    if (!(_p.getBool('accentMigrated') ?? false)) {
+      if (_p.getInt('accent') == 0xFFE5A23A) await _p.remove('accent');
+      await _p.setBool('accentMigrated', true);
+    }
   }
 
   dynamic _json(String k, dynamic def) {
@@ -62,6 +64,14 @@ class Store extends ChangeNotifier {
       case String s: _p.setString(k, s);
     }
     if (notify) notifyListeners();
+  }
+
+  /// Einstellungen auf den Standard zurücksetzen.
+  void reset(Iterable<String> keys) {
+    for (final k in keys) {
+      _p.remove(k);
+    }
+    notifyListeners();
   }
 
   // ---- häufig genutzte Einstellungen ----
@@ -140,7 +150,10 @@ class Store extends ChangeNotifier {
     return ((h['pos'] as int) / (h['dur'] as int)).clamp(0, 1);
   }
 
-  void saveProgress(Source s, MediaItem item, String url, String title, Duration pos, Duration dur) {
+  /// [notify] false: nur speichern. Der Player sichert alle 15 s; mit Meldung baute sich dabei jedes Mal die
+  /// Liste unter dem Player neu auf. Er meldet einmal beim Schließen ([refresh]).
+  void saveProgress(Source s, MediaItem item, String url, String title, Duration pos, Duration dur,
+      {bool notify = true}) {
     history[url] = {
       'src': s.id,
       'item': item.toJson(episodes: false),
@@ -154,8 +167,11 @@ class Store extends ChangeNotifier {
       history.remove(oldest.key);
     }
     _p.setString('history', jsonEncode(history));
-    notifyListeners();
+    if (notify) notifyListeners();
   }
+
+  /// Listen neu aufbauen (Fortschritt, „Weiterschauen“), nachdem ohne Meldung gespeichert wurde.
+  void refresh() => notifyListeners();
 
   /// Zuletzt gesehen (neueste zuerst) für eine Quelle. Serien nur einmal: mit der zuletzt gesehenen Folge.
   List<MapEntry<String, Map<String, dynamic>>> recent(Source s) {

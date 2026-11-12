@@ -19,6 +19,7 @@ import '../repo.dart';
 import '../store.dart';
 import 'browse.dart';
 import 'common.dart';
+import 'fx.dart';
 
 class PlayItem {
   final String url;
@@ -92,6 +93,8 @@ class PlayerScreen extends StatefulWidget {
   final int index;
   final bool fromStart;
   final String? engine; // 'exo'/'mpv' nur für diese Wiedergabe, null = Einstellung
+  final Engine? handoff; // Player der Live-Vorschau, der list[index] schon spielt: weiterverwenden
+  final bool grow; // wächst aus der Live-Vorschau: Bedienleiste erst danach zeigen
 
   const PlayerScreen({
     super.key,
@@ -100,22 +103,52 @@ class PlayerScreen extends StatefulWidget {
     required this.index,
     this.fromStart = false,
     this.engine,
+    this.handoff,
+    this.grow = false,
   });
 
   /// Routenname, damit externe Links einen laufenden Player ersetzen können.
   static const route = 'player';
 
-  static Future<void> open(BuildContext c, Source s, List<PlayItem> list, int index, {bool fromStart = false}) async {
+  /// [handoff]/[from]: aus der Live-Vorschau (Fernseher). Der Vorschau-Player läuft im Vollbild weiter und
+  /// das Bild wächst aus dem Rechteck [from] heraus (nicht bei „Animationen reduzieren“).
+  static Future<void> open(BuildContext c, Source s, List<PlayItem> list, int index,
+      {bool fromStart = false, Engine? handoff, Rect? from}) async {
     // Externer Player gewählt (Einstellungen → Player): dort abspielen, bei Fehlern doch hier
     final ext = store.get('extPlayer', '');
-    if (ext.isNotEmpty && await playExternal(c, s, list[index], ext, fromStart: fromStart)) return;
-    if (!c.mounted) return;
+    if (ext.isNotEmpty) {
+      handoff?.dispose();
+      handoff = null;
+      if (await playExternal(c, s, list[index], ext, fromStart: fromStart)) return;
+    }
+    if (!c.mounted) {
+      handoff?.dispose();
+      return;
+    }
+    final grow = from != null && !store.reduceMotion;
+    final page = PlayerScreen(source: s, list: list, index: index, fromStart: fromStart, handoff: handoff, grow: grow);
+    const settings = RouteSettings(name: route);
     await Navigator.push(
       c,
-      MaterialPageRoute(
-        settings: const RouteSettings(name: route),
-        builder: (_) => PlayerScreen(source: s, list: list, index: index, fromStart: fromStart),
-      ),
+      grow
+          ? PageRouteBuilder(
+              settings: settings,
+              transitionDuration: fxMs(340),
+              reverseTransitionDuration: fxMs(260),
+              pageBuilder: (_, _, _) => page,
+              // Größe per Layout statt Skalierung: eine SurfaceView (Fernseher) kennt keine Transformationen
+              transitionsBuilder: (c, a, _, child) => AnimatedBuilder(
+                animation: a,
+                child: child,
+                builder: (c, child) => Stack(children: [
+                  Positioned.fromRect(
+                    rect: Rect.lerp(from, Offset.zero & MediaQuery.sizeOf(c), Curves.easeOutCubic.transform(a.value))!,
+                    child: child!,
+                  ),
+                ]),
+              ),
+            )
+          : MaterialPageRoute(settings: settings, builder: (_) => page),
     );
   }
 
@@ -142,8 +175,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (state == AppLifecycleState.resumed) _immersive();
   }
 
-  late final Engine _e = Engine.create(
-      widget.list[widget.index].url, widget.engine ?? downloads.engineFor(widget.list[widget.index].url));
+  late final Engine _e = widget.handoff ??
+      Engine.create(widget.list[widget.index].url, widget.engine ?? downloads.engineFor(widget.list[widget.index].url));
   bool _leaving = false;
   final _root = FocusNode(debugLabel: 'player');
   final _playBtn = FocusNode(debugLabel: 'play');
@@ -152,6 +185,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   final _stillBack = FocusNode(debugLabel: 'still-back');
   final _errorExt = [FocusNode(debugLabel: 'ext-1'), FocusNode(debugLabel: 'ext-2')];
   final _stillBtn = FocusNode(debugLabel: 'still');
+  // Senderleiste unter der Bedienleiste (Live): Pfeil runter oder hochwischen
+  final _stripNode = FocusNode(debugLabel: 'strip');
+  final _chipsNode = FocusNode(debugLabel: 'chips', skipTraversal: true, canRequestFocus: false);
+  bool _strip = false;
+  double? _dragStrip; // Wischen im unteren Bereich: Strecke, null = andere Geste
+  bool get _canStrip => _cur.live && widget.list.length > 1;
   bool _everPlayed = false; // Stream lief schon: Fehler sind Abbrüche, kein Format-Problem
   bool _failed = false; // Fehlermeldung sichtbar (nicht während automatischem Neuverbinden)
   int _repeat = 0; // gehaltene Taste: Spulen beschleunigen
@@ -170,6 +209,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   List<String> _externals = []; // installierte externe Player (VLC, MX)
   DateTime? _sleepAt;
   int _retries = 0, _openId = 0, _tapSeek = 0;
+  // Server sperrt die Player-Kennung (HTTP 401/403): der Reihe nach andere versuchen. 0 = eingestellte
+  int _uaTry = 0;
+  String? _ua; // Kennung des laufenden Versuchs
+  List<String> _uaAlts = const [];
   String _digits = '';
   String? _toast;
   List<({String title, DateTime start, DateTime end})> _epg = [];
@@ -229,9 +272,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     super.initState();
     _e.onCompleted = _completed;
     _e.state.addListener(_onState);
-    _saveTimer = Timer.periodic(const Duration(seconds: 15), (_) => _saveProgress());
-    // Bedienleiste beim Start zeigen und nach der eingestellten Zeit ausblenden
-    _hideTimer = Timer(Duration(seconds: store.get('hideSec', 5)), _hide);
+    _saveTimer = Timer.periodic(const Duration(seconds: 15), (_) => _saveProgress(notify: false));
+    // Bedienleiste beim Start zeigen und nach der eingestellten Zeit ausblenden. Wächst das Bild aus der
+    // Vorschau, erst danach: in der kleinen Fläche hat sie keinen Platz
+    _controls = !widget.grow;
+    _hideTimer = widget.grow ? Timer(fxMs(360), _show) : Timer(Duration(seconds: store.get('hideSec', 5)), _hide);
     // Handy: beim Verlassen der App als Bild-in-Bild weiterlaufen
     if (_phone && store.get('autoPip', true)) _device.invokeMethod('autoPip', true).catchError((_) {});
     _open++;
@@ -247,13 +292,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _controls && _playBtn.context != null) _playBtn.requestFocus();
     });
-    _play(_i);
+    _play(_i, adopt: widget.handoff != null);
   }
 
   @override
   void dispose() {
     Perf.paused--;
-    _saveProgress();
+    // Erst nach dem Abbau melden: mittendrin dürfen sich die Listen darunter nicht neu aufbauen
+    _saveProgress(notify: false);
+    Timer.run(store.refresh);
     for (final t in [_hideTimer, _saveTimer, _sleepTimer, _retryTimer, _digitTimer, _toastTimer, _tapSeekTimer, _graceTimer]) {
       t?.cancel();
     }
@@ -266,6 +313,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _errorAlt.dispose();
     _errorBack.dispose();
     _stillBack.dispose();
+    _stripNode.dispose();
+    _chipsNode.dispose();
     for (final n in _errorExt) {
       n.dispose();
     }
@@ -285,7 +334,20 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     final s = _e.state.value;
     if (s.playing && s.ready) {
       _retries = 0;
+      // Lief erst mit einer anderen Kennung: für diese Quelle merken
+      if (!_everPlayed && _uaTry > 0 && _ua != null) Repo.rememberUserAgent(widget.source, _ua!);
       _everPlayed = true;
+    }
+    // Server lehnt ab (401/403): oft ist nur die Player-Kennung gesperrt. Nächste versuchen, bevor der
+    // Fehler erscheint oder der andere Player einspringt
+    if (s.error != null &&
+        !_everPlayed &&
+        _uaTry < _uaAlts.length &&
+        store.get('uaFallback', true) &&
+        RegExp(r'HTTP 40[13]\b').hasMatch(s.error!)) {
+      _uaTry++;
+      _play(_i, retry: true);
+      return;
     }
     // Vor der ersten Wiedergabe: Fehler 8 s lang nicht zeigen, sondern weiter versuchen
     if (s.error != null && !_everPlayed) {
@@ -360,7 +422,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   void _completed() {
     if (_cur.live || !mounted) return;
-    _saveProgress();
+    _saveProgress(notify: false);
     if (_advancing) return;
     if (store.get('autoNext', true) && _hasNext && !_stopAtEnd) {
       _advancing = true;
@@ -375,8 +437,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _play(_i + 1);
   }
 
-  Future<void> _play(int i, {bool retry = false}) async {
-    if (!retry) _saveProgress();
+  /// [adopt]: der Player spielt den Eintrag schon (aus der Live-Vorschau übernommen), nicht neu öffnen.
+  Future<void> _play(int i, {bool retry = false, bool adopt = false}) async {
+    if (!retry) _saveProgress(notify: false);
     final n = widget.list.length;
     i = (i % n + n) % n;
     final id = ++_openId;
@@ -384,6 +447,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     setState(() {
       _i = i;
       if (!retry) {
+        _uaTry = 0;
         _everPlayed = false;
         _openedAt = DateTime.now();
         _graceRetried = false;
@@ -400,7 +464,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       }
     });
     // Alten Stand verwerfen: sonst zählt der Abspann-Countdown der vorigen Folge weiter
-    if (!retry) _e.state.value = const PlaybackState();
+    if (!retry && !adopt) _e.state.value = const PlaybackState();
     final item = _cur;
     if (item.live) store.addRecentLive(widget.source, item.item);
     Duration? start;
@@ -409,19 +473,31 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
     // Heruntergeladen? Dann offline aus der Datei abspielen
     var url = downloads.localFile(item.url) ?? item.url;
-    if (url.startsWith('stalker:')) {
-      try {
-        url = await Repo.stalkerResolve(widget.source, url);
-      } catch (e) {
-        if (mounted && id == _openId) _e.state.value = PlaybackState(buffering: false, error: '$e');
-        return;
+    if (adopt) {
+      _onState(); // läuft schon: Stand übernehmen
+    } else {
+      if (url.startsWith('stalker:')) {
+        try {
+          url = await Repo.stalkerResolve(widget.source, url);
+        } catch (e) {
+          if (mounted && id == _openId) _e.state.value = PlaybackState(buffering: false, error: '$e');
+          return;
+        }
       }
+      // Während des Ladens weitergezappt: diesen Aufruf verwerfen
+      if (!mounted || id != _openId) return;
+      final base = Repo.streamHeaders(widget.source);
+      var (cleanUrl, headers) = Engine.splitHeaders(url, base);
+      // Andere Kennungen nur, wenn der Link keine eigene mitbringt (Stalker und Kodi-Header bleiben)
+      final own = headers['User-Agent'];
+      _uaAlts = widget.source.type != SourceType.stalker && own == base['User-Agent'] && _e is ExoEngine
+          ? [for (final u in Repo.userAgents) if (u != own) u]
+          : const [];
+      if (_uaTry > 0 && _uaTry <= _uaAlts.length) headers = {...headers, 'User-Agent': _uaAlts[_uaTry - 1]};
+      _ua = headers['User-Agent'];
+      await _e.open(cleanUrl, headers, start: start);
+      if (!mounted || id != _openId) return;
     }
-    // Während des Ladens weitergezappt: diesen Aufruf verwerfen
-    if (!mounted || id != _openId) return;
-    final (cleanUrl, headers) = Engine.splitHeaders(url, Repo.streamHeaders(widget.source));
-    await _e.open(cleanUrl, headers, start: start);
-    if (!mounted || id != _openId) return;
     _advancing = false;
     _capQuality(id);
     final rate = store.get('defaultRate', 1.0);
@@ -460,11 +536,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
   }
 
-  void _saveProgress() {
+  void _saveProgress({bool notify = true}) {
     if (_cur.live) return;
     final s = _e.state.value;
     if (s.duration > Duration.zero) {
-      store.saveProgress(widget.source, _cur.item, _cur.url, _cur.title, s.position, s.duration);
+      store.saveProgress(widget.source, _cur.item, _cur.url, _cur.title, s.position, s.duration, notify: notify);
     }
   }
 
@@ -477,7 +553,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       setState(() => _controls = true);
       // Fernbedienung: Fokus auf Play/Pause, damit Pfeile die Knöpfe erreichen
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _controls && _root.hasPrimaryFocus) _playBtn.requestFocus();
+        final target = _strip ? _stripNode : _playBtn;
+        if (mounted && _controls && _root.hasPrimaryFocus && target.context != null) target.requestFocus();
       });
     }
     _hideTimer = Timer(Duration(seconds: store.get('hideSec', 5)), _hide);
@@ -486,8 +563,21 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   void _hide() {
     _hideTimer?.cancel();
     if (!mounted || _e.state.value.error != null) return;
-    setState(() => _controls = false);
+    setState(() {
+      _controls = false;
+      _strip = false;
+    });
     _root.requestFocus();
+  }
+
+  /// Senderleiste mit Logos unter der Bedienleiste öffnen, Fokus auf dem laufenden Sender.
+  void _openStrip() {
+    if (!_canStrip) return;
+    if (!_strip) setState(() => _strip = true);
+    _show();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _strip && _stripNode.context != null) _stripNode.requestFocus();
+    });
   }
 
   void _flash(String text) {
@@ -549,7 +639,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (show) _show();
   }
 
-  /// Doppeltippen (Handy): Sprünge summieren sich wie bei Netflix („+30 s“).
+  /// Doppeltippen (Handy) und Pfeiltasten ohne Bedienleiste: Sprünge summieren sich wie bei Netflix („+30 s“).
+  /// Die Bedienleiste bleibt zu: sonst landet der Fokus dort und der nächste Pfeil spult nicht mehr.
   void _doubleTapSeek(int seconds) {
     if (_cur.live) return;
     _tapSeekTimer?.cancel();
@@ -760,6 +851,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           return KeyEventResult.handled;
       }
     }
+    // Live: Pfeil runter öffnet die Senderleiste. Ohne Bedienleiste sofort, sonst von der untersten Reihe aus
+    // (darüber führt der Pfeil erst dorthin)
+    if (k == LogicalKeyboardKey.arrowDown && _canStrip && !_strip && (!_controls || _desktop || _chipsNode.hasFocus)) {
+      _openStrip();
+      return KeyEventResult.handled;
+    }
     if (_controls) {
       _show(); // jede Taste verlängert die Anzeige
       return KeyEventResult.ignored;
@@ -770,9 +867,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       case LogicalKeyboardKey.arrowDown:
         _cur.live ? _zap(1) : _show();
       case LogicalKeyboardKey.arrowLeft:
-        _cur.live ? _channelList() : _seek(-step);
+        _cur.live ? _channelList() : _doubleTapSeek(-step);
       case LogicalKeyboardKey.arrowRight:
-        _cur.live ? _show() : _seek(step);
+        _cur.live ? _show() : _doubleTapSeek(step);
       case LogicalKeyboardKey.select || LogicalKeyboardKey.enter || LogicalKeyboardKey.gameButtonA:
         // OK: im Abspann zur nächsten Folge, am Anfang Intro überspringen
         final s = _e.state.value;
@@ -1270,8 +1367,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                         _dragSeek = null;
                       }
                     : null,
-                onVerticalDragUpdate: _phone && !_locked
-                    ? (d) {
+                onVerticalDragUpdate: _locked
+                    ? null
+                    : (d) {
+                        // Unten hochwischen: Senderleiste (runter schließt sie wieder)
+                        if (_dragStrip != null) {
+                          _dragStrip = _dragStrip! + d.delta.dy;
+                          if (_dragStrip! < -40 && !_strip) _openStrip();
+                          if (_dragStrip! > 40 && _strip) setState(() => _strip = false);
+                          return;
+                        }
+                        if (!_phone) return;
                         if (d.localPosition.dx > MediaQuery.sizeOf(context).width / 2) {
                           _setVolume(_volume - d.delta.dy / 300);
                         } else if (_cur.live && _dragZap != null) {
@@ -1282,9 +1388,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                             _dragZap = null;
                           }
                         }
-                      }
-                    : null,
-                onVerticalDragStart: _phone && !_locked ? (_) => _dragZap = 0 : null,
+                      },
+                onVerticalDragStart: _locked
+                    ? null
+                    : (d) {
+                        _dragZap = 0;
+                        _dragStrip = _canStrip && d.localPosition.dy > MediaQuery.sizeOf(context).height * .6 ? 0 : null;
+                      },
                 onDoubleTapDown: _locked
                     ? null
                     : (d) {
@@ -1722,6 +1832,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
               focusNode: _errorBtn,
               onTap: () {
                 _retries = 0;
+                _uaTry = 0;
                 _play(_i, retry: true);
               },
             ),
@@ -1870,8 +1981,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             ),
           ),
         ),
-        // ---- Mitte: große Knöpfe (Handy/TV; am PC unten in der Leiste) ----
-        if (!_desktop)
+        // ---- Mitte: große Knöpfe (Handy/TV; am PC unten in der Leiste). Die Senderleiste braucht den Platz ----
+        if (!_desktop && !_strip)
           Center(
             child: FocusTraversalGroup(
               child: Row(
@@ -1906,7 +2017,24 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 children: [
                   if (cur.live) _LiveBar(now: now) else _SeekBar(engine: _e, step: _step, onUse: _show),
                   SizedBox(height: _desktop ? 6 : 14),
-                  _desktop ? _desktopBar(cur, multi) : _chipBar(cur, multi),
+                  Focus(focusNode: _chipsNode, child: _desktop ? _desktopBar(cur, multi) : _chipBar(cur, multi)),
+                  if (_strip && _canStrip)
+                    // Blättern mit dem Finger hält die Leiste offen
+                    NotificationListener<ScrollNotification>(
+                      onNotification: (_) {
+                        _show();
+                        return false;
+                      },
+                      child: _ChannelStrip(
+                        list: widget.list,
+                        current: _i,
+                        focusNode: _stripNode,
+                        onPick: (j) {
+                          if (j != _i) _play(j);
+                          _show();
+                        },
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -2162,6 +2290,89 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       ],
     );
   }
+}
+
+/// Live: Sender mit Logo und Name darunter, waagerecht unter der Bedienleiste.
+class _ChannelStrip extends StatefulWidget {
+  final List<PlayItem> list;
+  final int current;
+  final FocusNode focusNode; // bekommt der beim Öffnen laufende Sender
+  final ValueChanged<int> onPick;
+  const _ChannelStrip({required this.list, required this.current, required this.focusNode, required this.onPick});
+
+  @override
+  State<_ChannelStrip> createState() => _ChannelStripState();
+}
+
+class _ChannelStripState extends State<_ChannelStrip> {
+  static const _w = 132.0;
+  late final _first = widget.current;
+  // Laufender Sender als zweiter von links
+  late final _scroll = ScrollController(initialScrollOffset: math.max(0, (_first - 1) * _w));
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: SizedBox(
+      height: 100,
+      child: FocusTraversalGroup(
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          controller: _scroll,
+          itemExtent: _w,
+          itemCount: widget.list.length,
+          itemBuilder: (_, j) {
+            final p = widget.list[j];
+            final cur = j == widget.current;
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(3, 3, 9, 3),
+              child: Tap(
+                fill: true,
+                scale: 1,
+                // Fester Eintrag statt „der laufende“: sonst wechselt der Fokusknoten beim Umschalten den Besitzer
+                focusNode: j == _first ? widget.focusNode : null,
+                onTap: () => widget.onPick(j),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: cur ? .2 : .1),
+                          border: Border(bottom: BorderSide(color: cur ? store.accent : Colors.transparent, width: 3)),
+                        ),
+                        child: Artwork(p.item.logo, p.title, fit: BoxFit.contain, width: _w),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 5, 4, 5),
+                      child: Text(
+                        p.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: cur ? FontWeight.w800 : FontWeight.w500,
+                          color: cur ? store.accent : Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ),
+  );
 }
 
 /// Beschrifteter Knopf in der unteren Leiste.
